@@ -32,6 +32,8 @@
 (require 'macroexp)
 
 
+;;; Code:
+
 (defvar iter2-generate-tracing-functions nil
   "Set to non-nil to always generate tracing functions.
 Normally, only `iter2-tracing-defun' and `iter2-tracing-lambda'
@@ -119,6 +121,14 @@ See `iter2-defun' for details."
 (defun iter2--literal-or-variable-p (x)
   (or (atom x) (memq (car x) '(quote function))))
 
+(defmacro iter2--convert-progn (forms)
+  (declare (debug (form)))
+  `(iter2--convert-form (macroexp-progn ,forms)))
+
+(defmacro iter2--add-converted-form (place converted)
+  (declare (debug (place form)))
+  `(setf ,place (nconc (nreverse (macroexp-unprogn (car ,converted))) ,place)))
+
 (defun iter2--convert-function-body (body &optional tracing)
   (unless lexical-binding
     (error "Generator functions require lexical binding"))
@@ -158,17 +168,13 @@ See `iter2-defun' for details."
                           ,iter2--stack         nil)))
                (t (error "Unknown iterator operation %S" operation)))))))
 
-(defmacro iter2--convert-progn (forms)
-  (declare (debug (form)))
-  `(iter2--convert-form (macroexp-progn ,forms)))
-
 ;; Returns (CONVERTED-FORM . NEVER-YIELDS)
 ;;
 ;; Since this function is recursive, it can certainly run out of stack
 ;; on complicated forms if not byte-compiled.
 (defun iter2--convert-form (form)
-  ;; Speed optimizations, also simplifies debugging a bit.
   (if (atom form)
+      ;; Speed optimizations, also simplifies debugging a bit.
       (cons form t)
     (let ((body (macroexp-unprogn form))
           (never-yields t)
@@ -540,10 +546,6 @@ See `iter2-defun' for details."
          (iter2--do-trace "cleaning up using %S" function)
          (funcall function))
     `(funcall (pop ,iter2--cleanups))))
-
-(defmacro iter2--add-converted-form (place converted)
-  (declare (debug (place form)))
-  `(setf ,place (nconc (nreverse (macroexp-unprogn (car ,converted))) ,place)))
 
 (defun iter2--continuation-adding-form (new-continuations)
   (let ((value iter2--continuations))
