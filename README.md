@@ -51,4 +51,15 @@ generator functions in general.
 *TO BE WRITTEN*
 
 
+## Tips and tricks
+
+* Since `iter2` is fully compatible with `generator`, they can be used
+  interchangeably or even together, and will produce identical end
+  results, save for any bugs.  Therefore, if you suspect a bug in
+  `iter2`, try replacing `iter2-defun` with `iter-defun` in your
+  generator definition.  Remember, though, that `generator` package
+  also has bugs, e.g. [with variable rebindings][2].
+
+
 [1]: https://en.wikipedia.org/wiki/Generator_(computer_programming)
+[2]: https://debbugs.gnu.org/cgi/bugreport.cgi?bug=26073
