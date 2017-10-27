@@ -142,31 +142,45 @@ See `iter2-defun' for details."
          (iter2--stack-state               (make-symbol "$stack-state"))
          (iter2--catcher                   (make-symbol "$catcher"))
          (iter2--cleanups-used             nil)
-         (converted                        (iter2--convert-progn body)))
-    `(let (,iter2--continuations
-           ,@(when iter2--cleanups-used (list iter2--cleanups))
-           ,iter2--stack
-           ,iter2--yielding)
-       (setq ,iter2--continuations (list (lambda (,iter2--value) ,@(macroexp-unprogn (car converted)))))
-       (lambda (operation value)
-         (cond ((eq operation :next)
-                (while (and ,iter2--continuations (not ,iter2--yielding))
-                  (setq value ,(iter2--continuation-invocation-form 'value)))
-                (if ,iter2--yielding
-                    (progn (setq ,iter2--yielding nil)
-                           value)
-                  (signal 'iter-end-of-sequence value)))
-               ((eq operation :close)
-                ,(if iter2--cleanups-used
-                     `(let ((cleanups ,iter2--cleanups))
-                        (setq ,iter2--continuations nil
-                              ,iter2--cleanups      nil
-                              ,iter2--stack         nil)
-                        (if cleanups
-                            (iter2--do-clean-up cleanups)))
-                   `(setq ,iter2--continuations nil
-                          ,iter2--stack         nil)))
-               (t (error "Unknown iterator operation %S" operation)))))))
+         (apply-debugger                   (lambda (&rest forms) forms)))
+    (pcase body
+      (`((edebug-enter ,edebug-name ,edebug-args (function (lambda () . ,real-body))))
+       ;; This is a hack, but since Emacs code (Edebug in this case) is pretty stable, I'm
+       ;; sure it will keep working.  The idea is to invoke `edebug-enter' not when the
+       ;; function is first called (this creates and returns an iterator object and
+       ;; doesn't involve user code at all), but instead when it receives control after
+       ;; `iter-next' or `iter-yield' call.  This also solves the issue with form
+       ;; conversion: normally `iter2--convert-form' doesn't recurse into nested lambdas.
+       (setf body           real-body
+             apply-debugger (lambda (&rest forms) `((edebug-enter ,edebug-name ,edebug-args (function (lambda () ,@forms))))))))
+    ;; Need to convert the body now, since this affects at least `iter2--cleanups-used'.
+    (let ((converted (iter2--convert-progn body)))
+      `(let (,iter2--continuations
+             ,@(when iter2--cleanups-used (list iter2--cleanups))
+             ,iter2--stack
+             ,iter2--yielding)
+         (setq ,iter2--continuations (list (lambda (,iter2--value) ,@(macroexp-unprogn (car converted)))))
+         (lambda (operation value)
+           (cond ((eq operation :next)
+                  ,@(funcall apply-debugger
+                             `(while (and ,iter2--continuations (not ,iter2--yielding))
+                                (setq value ,(iter2--continuation-invocation-form 'value)))
+                             `(if ,iter2--yielding
+                                  (progn (setq ,iter2--yielding nil)
+                                         value)
+                                (signal 'iter-end-of-sequence value))))
+                 ((eq operation :close)
+                  ,@(funcall apply-debugger
+                             (if iter2--cleanups-used
+                                 `(let ((cleanups ,iter2--cleanups))
+                                    (setq ,iter2--continuations nil
+                                          ,iter2--cleanups      nil
+                                          ,iter2--stack         nil)
+                                    (if cleanups
+                                        (iter2--do-clean-up cleanups)))
+                               `(setq ,iter2--continuations nil
+                                      ,iter2--stack         nil))))
+                 (t (error "Unknown iterator operation %S" operation))))))))
 
 ;; Returns (CONVERTED-FORM . NEVER-YIELDS)
 ;;
