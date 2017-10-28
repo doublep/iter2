@@ -680,6 +680,15 @@ See `iter2-defun' for details."
     (apply #'message (concat "%siter2: " format-string) (cons (apply #'concat (make-list iter2--tracing-depth "    ")) arguments))))
 
 
+;; Make sure that we are still compatible with `generator'.  I couldn't make it work like
+;; I wanted with fewer `eval's.
+(eval-after-load 'iter2
+  (eval `(unless (let* ((it (funcall (iter2-lambda () (iter-yield 1)))))
+                   (and (equal (iter-next it) 1) (condition-case error (progn (iter-next it 2) nil) (iter-end-of-sequence (equal (cdr error) 2)))))
+           (warn "Compatibility of `iter2' with `generator' package appears broken; please report this to maintainer (Emacs version: %s)" (emacs-version)))
+        t))
+
+
 (provide 'iter2)
 
 ;;; iter2.el ends here
