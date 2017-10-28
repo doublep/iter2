@@ -688,6 +688,10 @@ See `iter2-defun' for details."
            (warn "Compatibility of `iter2' with `generator' package appears broken; please report this to maintainer (Emacs version: %s)" (emacs-version)))
         t))
 
+;; Work around missing Edebug specification for `iter-do' macro.
+(when (and (fboundp 'iter-do) (null (get 'iter-do 'edebug-form-spec)))
+  (put 'iter-do 'edebug-form-spec '((symbolp form) body)))
+
 
 (provide 'iter2)
 
