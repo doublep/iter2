@@ -4,7 +4,7 @@
 
 ;; Author:     Paul Pogonyshev <pogonyshev@gmail.com>
 ;; Maintainer: Paul Pogonyshev <pogonyshev@gmail.com>
-;; Version:    0.9
+;; Version:    0.9.2
 ;; Keywords:   elisp, extensions
 ;; Homepage:   https://github.com/doublep/iter2
 ;; Package-Requires: ((emacs "25.1"))
@@ -34,6 +34,32 @@
 
 ;;; Code:
 
+(defgroup iter2 nil
+  "Reimplementation of Elisp generators"
+  :group 'lisp)
+
+(defcustom iter2-detect-nested-lambda-yields nil
+  "If non-nil, detect non-working yields in nested lambdas.
+Due to the way `iter2' (or original `generator', for that matter)
+works, it is impossible to yield from nested lambdas: only from
+the main function.  Such `iter-yield' invocations will fail at
+runtime.
+
+When this variable is set, `iter2' tries to detect such problems
+during conversion.  However, this test is not enabled by default
+because it might, in principle, give false positives if you never
+call said lambda.  It also negatively affects performance.
+
+On the other hand, this might be useful, as it is very easy to
+accidentally try to yield from a macro-generated lambda, e.g.:
+
+    # Replace each element with what `iter-yield' returns.  Not
+    # obvious that this form will not work.
+    (setf list (--map (iter-yield it) list))"
+  :type  'boolean
+  :group 'iter2)
+
+
 (defvar iter2-generate-tracing-functions nil
   "Set to non-nil to always generate tracing functions.
 Normally, only `iter2-tracing-defun' and `iter2-tracing-lambda'
@@ -51,6 +77,7 @@ variable.")
 If set to t, value of `print-length' at the time of tracing is
 preserved.  Otherwise, it is overwritten with the value of this
 variable.")
+
 
 (defvar iter2--tracing-depth 0)
 
@@ -228,6 +255,13 @@ See `iter2-defun' for details."
                        nil
                      (setq form rewritten-form))))
           (pcase form
+
+            ;; Handle nested lambdas: optionally check them for yields.
+            (`(function (lambda ,_lambda-args . ,lambda-body))
+             ;; Could write a faster function here, but probably not performance-critical.
+             (when (and iter2-detect-nested-lambda-yields (not (cdr (iter2--convert-progn lambda-body))))
+               (error "Nested anonymous function %S yields, which will fail at runtime" (cadr form)))
+             (push form converted))
 
             ;; Handle quoting ('_ and #'_): just pass it through.
             (`(,(or 'quote 'function) ,_)
