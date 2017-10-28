@@ -1,6 +1,6 @@
 [![License: GPL 3](https://img.shields.io/badge/license-GPL_3-green.svg)](http://www.gnu.org/licenses/gpl-3.0.txt)
 [![Build Status](https://secure.travis-ci.org/doublep/iter2.png)](http://travis-ci.org/doublep/iter2)
-[![GitHub release](https://img.shields.io/github/release/doublep/iter2.svg?maxAge=86400)](https://github.com/doublep/iter2/releases)
+[![MELPA Stable](http://stable.melpa.org/packages/iter2-badge.svg)](http://stable.melpa.org/#/logview)
 
 
 # iter2
@@ -14,21 +14,51 @@ package.
 
 Advantages:
 
-* *Much* faster conversion of complicated generator functions.
+* *Much* faster conversion of complex generator functions.
 
 * Generally faster resulting functions, though this can vary.
 
-* Considerably smaller generated code, especially for complicated
+* Considerably smaller generated code, especially for complex
   functions.
 
-* A bit more readable resulting functions.  There is also a built-in
-  tracing support.
+* More readable resulting functions and backtraces.  There is also a
+  built-in tracing support.
+
+* Generator functions can be debugged with Edebug.
 
 Disadvantages:
 
 * Because `iter2` conversion is heavily optimized, it is not as
   generic as in original `generator` package and is, therefore, more
   prone to bugs.
+
+
+### Installation
+
+`iter2` is available from MELPA (I recommend using the
+[stable](http://stable.melpa.org/#/iter2) version).  Assuming your
+`package-archives` lists MELPA, just type
+
+    M-x package-install RET iter2 RET
+
+to install it.
+
+Alternatively, installing `iter2` from source is not difficult either.
+First, clone the source code:
+
+    $ cd SOME-PATH
+    $ git clone https://github.com/doublep/iter2.git
+
+Now, from Emacs execute:
+
+    M-x package-install-file RET SOME-PATH/iter2
+
+#### Running regression tests
+
+This is only possible if you have the full source code, e.g. cloned it
+from Git as described above.  Just execute `./run-tests.sh` from the
+`iter2` directory.  All tests must pass, there can be no “expected
+failures”.
 
 
 ## Usage
@@ -48,7 +78,66 @@ needed.
 Please refer to [description in Wikipedia][1] for reasons to use
 generator functions in general.
 
-*TO BE WRITTEN*
+To declare a generator function, use `iter2-defun` or `iter2-lambda`.
+Inside the function you can yield control with `iter-yield`.  For
+example:
+
+    (iter2-defun unbounded-counter (start)
+      (while t
+        (iter-yield start)
+        (setq start (1+ start))))
+
+Yielding can happen anywhere inside generator function with one
+exception: you cannot yield from cleanup forms inside `(unwind-protect
+BODY CLEANUP...)`.  It is also possible to yield values produced by
+another generator with `iter-yield-from` macro.
+
+To create an iterator object, call generator function as a usual
+function.  Once you have an iterator object, retrieve values from it
+using `iter-next`:
+
+    (let ((it (unbounded-counter 1)))
+      (dotimes (_ 5)
+        (print (iter-next it))))
+
+You should always call `iter-close` on iterator object once you no
+longer need it.  Otherwise, cleanup forms in `unwind-protect` in the
+generator may not run.  Iterators produced by our `unbounded-counter`
+do not really need closing, since `unwind-protect` is never used in
+that function, but if you write anything that works with arbitrary
+generators, keep that in mind.
+
+If generator function terminates, `iter-next` will signal condition
+`iter-end-of-sequence` with evaluated value.  For example, this form:
+
+    (let ((it (funcall (iter2-lambda ()
+                         (iter-yield 1)
+                         2))))
+      (iter-next it)
+      (iter-next it))
+
+will signal `(iter-end-of-sequence . 2)`.  You can use
+`condition-case` to handle this condition.  In simple cases, you can
+use `iter-do` macro, which parallels `dolist` and always run its
+iterator till the end:
+
+    (iter-do (x (funcall (iter2-lambda ()
+                           (iter-yield 'a)
+                           (iter-yield 'b))))
+      (print x))
+
+Optional second parameter of `iter-next` is the value that is returned
+by `iter-yield` inside generator function.  To illustrate:
+
+    (iter2-defun parrot (value)
+      (while t
+        (setq value (iter-yield value))))
+
+    (let ((it (parrot 1)))
+      (print (iter-next it))  ; first time it is not used
+      (print (iter-next it 'hello))
+      (print (iter-next it (list 1 2 3)))
+      (print (iter-next it)))
 
 
 ## Tips and tricks
@@ -58,7 +147,31 @@ generator functions in general.
   results, save for any bugs.  Therefore, if you suspect a bug in
   `iter2`, try replacing `iter2-defun` with `iter-defun` in your
   generator definition.  Remember, though, that `generator` package
-  also has bugs, e.g. [with variable rebindings][2].
+  also has bugs, e.g. [with lambda parameter names matching already
+  bound variable names][2].
+
+* Generator functions can only yield “on their own”, it is not allowed
+  to have a called function yield control on their behalf.  For
+  example, this is illegal:
+
+      (iter2-defun clever-but-illegal (&rest args)
+        (mapc (lambda (x) (iter-yield x)) args))
+
+  The package provides a guard against such mistakes.  It is not on by
+  default, but you can activate it by customizing
+  `iter2-detect-nested-lambda-yields`.  It can come in very handy,
+  since oftentimes nested lambdas are generated by macros (e.g. by
+  `dash.el`) and you don’t even think of that.
+
+  Remember that calling `iter-yield` by its name is also illegal.
+  I.e. like this:
+
+      (iter2-defun clever-but-illegal (&rest args)
+        (mapc #'iter-yield args))
+
+  Unfortunately, the guard will not detect such things and they will
+  fail only at runtime.  Just remember, never ever call `iter-yield`
+  by name, always use `(iter-yield ...)` form.
 
 
 [1]: https://en.wikipedia.org/wiki/Generator_(computer_programming)
