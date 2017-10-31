@@ -90,6 +90,12 @@
      (iter2--runtime-eval fn (iter2-lambda () ,@body)
        (iter2--test fn :end-value (progn ,@body)))))
 
+(defmacro iter2--let-wrapper (bindings &rest body)
+  `(let (,@bindings) ,@body))
+
+(defmacro iter2--let-wrapper-2 (bindings &rest body)
+  `(iter2--let-wrapper (,@bindings) ,@body))
+
 
 (defvar iter2--test-global-var-1 nil)
 (defvar iter2--test-global-var-2 nil)
@@ -526,3 +532,8 @@
     (iter2--runtime-eval fn2 (iter2-lambda (it) (iter-yield-from it))
       (iter2--test fn1 :args '(1 2 3)                   :expected '(1 2 3))
       (iter2--test fn2 :args (list (funcall fn1 1 2 3)) :expected '(1 2 3)))))
+
+(ert-deftest iter2-metamacro-1 ()
+  ;; Test with a macro that expands to (another) macro.
+  (iter2--runtime-eval fn (iter2-lambda () (iter2--let-wrapper-2 ((x 1)) (iter-yield x)))
+    (iter2--test fn :expected '(1))))

@@ -227,7 +227,7 @@ See `iter2-defun' for details."
           converted
           new-continuations)
       (while (and body never-yields)
-        (let ((form (macroexpand-1 (pop body))))
+        (let ((form (macroexpand (pop body))))
           ;; Simplify certain forms, rewrite certain others using
           ;; special forms that we handle below.
           ;;
