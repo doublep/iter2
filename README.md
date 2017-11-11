@@ -14,17 +14,20 @@ package.
 
 Advantages:
 
+* Support for `save-excursion` and similar forms (see [detailed
+  description below](#save-x)).
+
+* Generator functions can be debugged with Edebug.
+
 * *Much* faster conversion of complex generator functions.
 
-* Generally faster resulting functions, though this can vary.
+* Generally faster resulting functions.
 
 * Considerably smaller generated code, especially for complex
   functions.
 
 * More readable resulting functions and backtraces.  There is also a
   built-in tracing support.
-
-* Generator functions can be debugged with Edebug.
 
 Disadvantages:
 
@@ -33,7 +36,7 @@ Disadvantages:
   prone to bugs.
 
 
-### Installation
+## Installation
 
 `iter2` is available from MELPA (I recommend using the
 [stable](http://stable.melpa.org/#/iter2) version).  Assuming your
@@ -53,7 +56,7 @@ Now, from Emacs execute:
 
     M-x package-install-file RET SOME-PATH/iter2
 
-#### Running regression tests
+### Running regression tests
 
 This is only possible if you have the full source code, e.g. cloned it
 from Git as described above.  Just execute `./run-tests.sh` from the
@@ -172,6 +175,33 @@ by `iter-yield` inside generator function.  To illustrate:
   Unfortunately, the guard will not detect such things and they will
   fail only at runtime.  Just remember, never ever call `iter-yield`
   by name, always use `(iter-yield ...)` form.
+
+### Current buffer, point etc.<a id="save-x"></a>
+
+In general, generator functions must be aware that when `iter-yield`
+gives control back, invoking function can do anything it wants,
+including switching to other buffers, moving point and so on.  When
+generator function resumes, its local variables (and dynamic ones it
+rebound) get their values restored, but not other global state.
+
+However, you can use special forms like `save-excursion`,
+`save-current-buffer` and so on to “separate” generator function
+buffer state from its caller’s state.  This is probably easier to
+illustrate with an example:
+
+    (iter2-defun uses-own-buffer ()
+      (with-temp-buffer
+        (insert "foo")
+        (iter-yield 1)
+        (insert " bar")
+        (buffer-substring (point-min) (point-max))))
+
+    (print (iter-do (_ (uses-own-buffer))
+             (insert "just a test")))
+
+This example doesn’t do anything remotely useful, of course, but it
+shows how generator function and its caller can write each to its own
+buffer: `with-temp-buffer` internally uses `save-current-buffer`.
 
 
 [1]: https://en.wikipedia.org/wiki/Generator_(computer_programming)

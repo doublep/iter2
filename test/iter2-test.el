@@ -538,6 +538,48 @@
     (should (= (catch 'z (iter2--test fn :returned '(a b z 0) :expected '(1 2 3 4))) 0))
     (iter2--assert-num-lambdas fn 15)))
 
+(ert-deftest iter2-save-excursion-1 ()
+  (iter2--runtime-eval fn (iter2-lambda ()
+                            (save-excursion
+                              (while (let ((x (iter-yield nil))) (when x (insert (prin1-to-string x)) t)))
+                              (buffer-substring (point-min) (point-max))))
+    (with-temp-buffer
+      (iter2--test fn                        :expected '(nil)             :end-value ""
+                   :body ((set-buffer (messages-buffer)))))
+    (with-temp-buffer
+      (iter2--test fn :returned '(1)         :expected '(nil nil)         :end-value "1"
+                   :body ((set-buffer (messages-buffer)))))
+    (with-temp-buffer
+      (iter2--test fn :returned '(1 2)       :expected '(nil nil nil)     :end-value "12"
+                   :body ((set-buffer (messages-buffer)))))
+    (with-temp-buffer
+      (iter2--test fn :returned '(1 2 (3 4)) :expected '(nil nil nil nil) :end-value "12(3 4)"
+                   :body ((set-buffer (messages-buffer)))))
+    (iter2--assert-num-lambdas fn 9)))
+
+(ert-deftest iter2-save-current-buffer-1 ()
+  (iter2--runtime-eval fn (iter2-lambda ()
+                            (with-temp-buffer
+                              (while (let ((x (iter-yield nil))) (when x (insert (prin1-to-string x)) t)))
+                              (buffer-substring (point-min) (point-max))))
+    (iter2--test fn                        :expected '(nil)             :end-value "")
+    (iter2--test fn :returned '(1)         :expected '(nil nil)         :end-value "1")
+    (iter2--test fn :returned '(1 2)       :expected '(nil nil nil)     :end-value "12")
+    (iter2--test fn :returned '(1 2 (3 4)) :expected '(nil nil nil nil) :end-value "12(3 4)")
+    (iter2--assert-num-lambdas fn 13)))
+
+(ert-deftest iter2-save-restriction-1 ()
+  (iter2--runtime-eval fn (iter2-lambda ()
+                            (save-restriction
+                              (widen)
+                              (narrow-to-region 1 1)
+                              (iter-yield (cons (point-min) (point-max)))
+                              (iter-yield (cons (point-min) (point-max)))))
+    (with-temp-buffer
+      (insert "bla bla bla")
+      (iter2--test fn :expected '((1 . 1) (1 . 1)) :body ((should (> (point-max) (point-min))))))
+    (iter2--assert-num-lambdas fn 6)))
+
 (ert-deftest iter2-calls-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (list (iter-yield 1) (iter-yield 2) (iter-yield 3)))
     (iter2--test fn                    :expected '(1 2 3) :end-value '(nil nil nil))
