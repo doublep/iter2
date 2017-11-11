@@ -275,7 +275,8 @@
   (iter2--runtime-eval fn (iter2-lambda (x) (if x (iter-yield 1) (iter-yield 2)))
     (iter2--test fn :args '(nil)                :expected '(2))
     (iter2--test fn :args '(t)                  :expected '(1))
-    (iter2--test fn :args '(t)   :returned '(t) :expected '(1) :end-value t)))
+    (iter2--test fn :args '(t)   :returned '(t) :expected '(1) :end-value t)
+    (iter2--assert-num-lambdas fn 3)))
 
 (ert-deftest iter2-if-2 ()
   (iter2--runtime-eval fn (iter2-lambda (x) (if x (iter-yield 1) (iter-yield 2)) 3)
@@ -330,6 +331,22 @@
     (iter2--test fn :args '(1)  :returned '(2 3)                       :expected '(1 2 3))
     (iter2--test fn :args '(0)  :returned-expression (1+ (or value 0)) :expected '(0 1 2 3 4) :max-length 5)
     (iter2--assert-num-lambdas fn 5)))
+
+(ert-deftest iter2-while-5 ()
+  (iter2--runtime-eval fn (iter2-lambda () (while (or (iter-yield 1) (iter-yield 2)) (iter-yield 3)))
+    (iter2--test fn                      :expected '(1 2))
+    (iter2--test fn :returned '(t)       :expected '(1 3 1 2))
+    (iter2--test fn :returned '(nil t)   :expected '(1 2 3 1 2))
+    (iter2--test fn :returned '(nil t t) :expected '(1 2 3 1 2))
+    (iter2--assert-num-lambdas fn 6)))
+
+(ert-deftest iter2-while-6 ()
+  (iter2--runtime-eval fn (iter2-lambda () (while (> (+ (iter-yield 1) (iter-yield 2)) 0) (iter-yield 3)))
+    (iter2--test fn :returned '(0 0)          :expected '(1 2))
+    (iter2--test fn :returned '(1 -2)         :expected '(1 2))
+    (iter2--test fn :returned '(1 1 nil 0 0)  :expected '(1 2 3 1 2))
+    (iter2--test fn :returned '(-1 2 nil 0 0) :expected '(1 2 3 1 2))
+    (iter2--assert-num-lambdas fn 8)))
 
 (ert-deftest iter2-let-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (let ((x 1)) (iter-yield x)))
@@ -526,6 +543,12 @@
     (iter2--test fn                    :expected '(1 2 3) :end-value '(nil nil nil))
     (iter2--test fn :returned '(4 5 6) :expected '(1 2 3) :end-value '(4 5 6))
     (iter2--assert-num-lambdas fn 6)))
+
+(ert-deftest iter2-calls-2 ()
+  (iter2--runtime-eval fn (iter2-lambda () (list (vector (iter-yield 1)) (vector (iter-yield 2)) (vector (iter-yield 3))))
+    (iter2--test fn                    :expected '(1 2 3) :end-value '([nil] [nil] [nil]))
+    (iter2--test fn :returned '(4 5 6) :expected '(1 2 3) :end-value '([4] [5] [6]))
+    (iter2--assert-num-lambdas fn 9)))
 
 (ert-deftest iter2-yield-from-1 ()
   (iter2--runtime-eval fn1 (iter2-lambda (&rest values) (while values (iter-yield (pop values))))
