@@ -14,7 +14,7 @@ $EMACS -batch                                                           \
        --eval "(message \"Using Emacs %s\" (emacs-version))"            \
        -l iter2.el                                                      \
        -l test/iter2-test.el                                            \
-       --eval "(ert-run-tests-batch-and-exit (quote ${ERT_SELECTOR}))"
+       --eval "(let ((ert-quiet t)) (ert-run-tests-batch-and-exit (quote ${ERT_SELECTOR})))"
 
 $EMACS -Q --batch                                                       \
        --eval "(setq byte-compile-error-on-warn t)"                     \
