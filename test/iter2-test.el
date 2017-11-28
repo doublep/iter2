@@ -314,7 +314,7 @@
     (iter2--test fn :args '(0)                        :expected '(1))
     (iter2--test fn :args '(0) :returned '(t t t)     :expected '(1 2 3 4))
     (iter2--test fn :args '(0) :returned-expression t :expected '(1 2 3 4 5) :max-length 5)
-    (iter2--assert-num-lambdas fn 5)))
+    (iter2--assert-num-lambdas fn 4)))
 
 (ert-deftest iter2-while-3 ()
   (iter2--runtime-eval fn (iter2-lambda (n) (while (iter-yield (setq n (1+ n))) (iter-yield 'inside)))
@@ -555,7 +555,7 @@
     (with-temp-buffer
       (iter2--test fn :returned '(1 2 (3 4)) :expected '(nil nil nil nil) :end-value "12(3 4)"
                    :body ((set-buffer (messages-buffer)))))
-    (iter2--assert-num-lambdas fn 9)))
+    (iter2--assert-num-lambdas fn 8)))
 
 (ert-deftest iter2-save-current-buffer-1 ()
   (iter2--runtime-eval fn (iter2-lambda ()
@@ -566,7 +566,7 @@
     (iter2--test fn :returned '(1)         :expected '(nil nil)         :end-value "1")
     (iter2--test fn :returned '(1 2)       :expected '(nil nil nil)     :end-value "12")
     (iter2--test fn :returned '(1 2 (3 4)) :expected '(nil nil nil nil) :end-value "12(3 4)")
-    (iter2--assert-num-lambdas fn 13)))
+    (iter2--assert-num-lambdas fn 12)))
 
 (ert-deftest iter2-save-restriction-1 ()
   (iter2--runtime-eval fn (iter2-lambda ()

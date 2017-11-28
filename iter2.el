@@ -305,11 +305,12 @@ See `iter2-defun' for details."
             ;; Handle (while CONDITION [WHILE-BODY...]).
             (`(while ,condition . ,while-body)
              (let* ((converted-while-body (iter2--convert-progn while-body))
-                    (converted-condition  (iter2--convert-form  condition
-                                                                `(if ,iter2--value
-                                                                     ,(macroexp-progn (cons `(setq ,iter2--continuations (cons (car ,iter2--stack) ,iter2--continuations))
-                                                                                            (when while-body (macroexp-unprogn (car converted-while-body)))))
-                                                                   (setq ,iter2--stack (cdr ,iter2--stack))))))
+                    (converted-condition  (iter2--convert-form condition
+                                                               (when while-body
+                                                                 `(if ,iter2--value
+                                                                      ,(macroexp-progn (cons `(setq ,iter2--continuations (cons (car ,iter2--stack) ,iter2--continuations))
+                                                                                             (macroexp-unprogn (car converted-while-body))))
+                                                                    (setq ,iter2--stack (cdr ,iter2--stack)))))))
                (if (cdr converted-condition)
                    (if (cdr converted-while-body)
                        ;; Nothing yields, the simplest case.
@@ -325,8 +326,16 @@ See `iter2-defun' for details."
                      (setq never-yields nil))
                  ;; Condition yields; whether body yields too is not relevant.  Note that
                  ;; we have added extra continuation at the conversion step above.
-                 (push (iter2--continuation-adding-form (list (car converted-condition)) iter2--stack) converted)
-                 (push (iter2--continuation-invocation-form nil `(car ,iter2--stack)) converted)
+                 (push (iter2--continuation-adding-form (list (if while-body
+                                                                  (car converted-condition)
+                                                                ;; Special optimization for the case of empty `while' body.
+                                                                `(if ,iter2--value
+                                                                     ,(macroexp-progn (cons `(setq ,iter2--continuations (cons (car ,iter2--stack) ,iter2--continuations))
+                                                                                             (macroexp-unprogn (car converted-condition))))
+                                                                    (setq ,iter2--stack (cdr ,iter2--stack)))))
+                                                        iter2--stack)
+                       converted)
+                 (push (iter2--continuation-invocation-form (null while-body) `(car ,iter2--stack)) converted)
                  (setq never-yields nil))))
 
             ;; Handle (let (BINDINGS) LET-BODY) and (let* (BINDINGS) LET-BODY).
