@@ -195,12 +195,12 @@ See `iter2-defun' for details."
          (lambda (operation value)
            (cond ((eq operation :next)
                   ,@(funcall apply-debugger
-                             `(while (and ,iter2--continuations (not ,iter2--yielding))
-                                (setq value ,(iter2--continuation-invocation-form 'value)))
-                             `(if ,iter2--yielding
-                                  (progn (setq ,iter2--yielding nil)
-                                         value)
-                                (signal 'iter-end-of-sequence value))))
+                             ;; Rewritten in a somewhat weird form to maximize performance.
+                             `(while (progn (setq value ,(iter2--continuation-invocation-form 'value `(or (pop ,iter2--continuations)
+                                                                                                          (signal 'iter-end-of-sequence value))))
+                                            (not ,iter2--yielding)))
+                             `(setq ,iter2--yielding nil)
+                             `value))
                  ((eq operation :close)
                   ,@(funcall apply-debugger
                              (if iter2--cleanups-used
