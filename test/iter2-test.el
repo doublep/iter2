@@ -96,6 +96,13 @@
 (defmacro iter2--let-wrapper-2 (bindings &rest body)
   `(iter2--let-wrapper (,@bindings) ,@body))
 
+(defun iter2--test-byte-compiles-with-no-warnings (fn)
+  (let* ((advice (lambda (format &rest arguments) (signal 'byte-compilation-warning (apply #'format-message format arguments)))))
+    (advice-add 'byte-compile-warn :before advice)
+    (unwind-protect
+        (byte-compile fn)
+      (advice-remove 'byte-compile-warn advice))))
+
 
 (defvar iter2--test-global-var-1 nil)
 (defvar iter2--test-global-var-2 nil)
@@ -602,3 +609,21 @@
   ;; Test with a macro that expands to (another) macro.
   (iter2--runtime-eval fn (iter2-lambda () (iter2--let-wrapper-2 ((x 1)) (iter-yield x)))
     (iter2--test fn :expected '(1))))
+
+(ert-deftest iter2-with-no-warnings-1 ()
+  (let* ((variable (make-symbol "variable"))
+         (fn       (eval `(iter2-lambda () (with-no-warnings (set ',variable (iter-yield 1)))) t)))
+    (iter2--test fn                :expected '(1))
+    (iter2--test fn :returned '(2) :expected '(1) :end-value 2)
+    (makunbound variable)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-with-no-warnings-2 ()
+  (let* ((variable (make-symbol "variable"))
+         (fn       (eval `(iter2-lambda () (with-no-warnings (set ',variable (iter-yield 1))) 10) t)))
+    (iter2--test fn                :expected '(1) :end-value 10)
+    (should (equal (symbol-value variable) nil))
+    (iter2--test fn :returned '(2) :expected '(1) :end-value 10)
+    (should (equal (symbol-value variable) 2))
+    (makunbound variable)
+    (iter2--test-byte-compiles-with-no-warnings fn)))

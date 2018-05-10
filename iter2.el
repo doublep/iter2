@@ -599,6 +599,12 @@ See `iter2-defun' for details."
                        converted)
                  (setq never-yields nil))))
 
+            ;; Handle `with-no-warnings': while not a special form, it requires special handling.
+            (`(with-no-warnings . ,body)
+             (let ((converted-body (iter2--convert-progn body)))
+               (push `(with-no-warnings ,@(macroexp-unprogn (car converted-body))) converted)
+               (setq never-yields (cdr converted-body))))
+
             ;; Handle all other non-atomic forms.
             (`(,name . ,arguments)
              ;; Several special forms are handled more-or-less like function calls.
