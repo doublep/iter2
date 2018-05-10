@@ -552,7 +552,9 @@ See `iter2-defun' for details."
                (if (cdr converted-body)
                    (push `(save-excursion ,@(macroexp-unprogn (car converted-body))) converted)
                  (push (iter2--catcher-continuation-adding-form `(save-excursion
-                                                                   (set-buffer buffer)
+                                                                   ;; Byte compiler gives a dumb warning here,
+                                                                   ;; suggesting to use `with-current-buffer'.
+                                                                   (with-no-warnings (set-buffer buffer))
                                                                    (goto-char  point)
                                                                    (prog1 ,(iter2--continuation-invocation-form iter2--value)
                                                                      (unless (eq ,iter2--continuations ,iter2--done)
