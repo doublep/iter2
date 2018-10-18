@@ -655,6 +655,14 @@
     (iter2--assert-num-lambdas fn 9)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+;; Written against a real bug caused by a typo in `iter2--stack-head-reversing-form'.
+(ert-deftest iter2-calls-3 ()
+  (iter2--runtime-eval fn (iter2-lambda () (list (iter-yield 1) (iter-yield 2) (iter-yield 3) (iter-yield 4)))
+    (iter2--test fn                      :expected '(1 2 3 4) :end-value '(nil nil nil nil))
+    (iter2--test fn :returned '(5 6 7 8) :expected '(1 2 3 4) :end-value '(5 6 7 8))
+    (iter2--assert-num-lambdas fn 7)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-yield-from-1 ()
   (iter2--runtime-eval fn1 (iter2-lambda (&rest values_) (while values_ (iter-yield (pop values_))))
     (iter2--runtime-eval fn2 (iter2-lambda (it) (iter-yield-from it))

@@ -724,7 +724,7 @@ See `iter2-defun' for details."
 (defun iter2--stack-head-reversing-form (n)
   (pcase n
     (2 `(iter2--reverse-stack-head-2 ,iter2--stack))
-    (3 `(iter2--reverse-stack-head-2 ,iter2--stack))
+    (3 `(iter2--reverse-stack-head-3 ,iter2--stack))
     (_ `(setq ,iter2--stack (iter2--reverse-stack-head-n ,iter2--stack ,(1- n))))))
 
 
