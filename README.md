@@ -7,7 +7,7 @@
 
 `iter2` is a fully compatible reimplementation of built-in `generator`
 package.  It provides `iter2-defun` and `iter2-lambda` forms that can
-be used instead of `iter-defun` and `iter-lambda`.  All other
+be used in place of `iter-defun` and `iter-lambda`.  All other
 functions and macros (e.g. `iter-yield`, `iter-next`) are
 intentionally not duplicated: just use the ones from the original
 package.
@@ -19,15 +19,16 @@ Advantages:
 
 * Generator functions can be debugged with Edebug.
 
-* *Much* faster conversion of complex generator functions.
+* Much faster conversion of complex generator functions.
 
 * Generally faster resulting functions.
 
 * Considerably smaller generated code, especially for complex
   functions.
 
-* More readable resulting functions and backtraces.  There is also a
-  built-in tracing support.
+* More readable resulting functions and backtraces.
+
+* Built-in tracing support for generated iterator functions.
 
 Disadvantages:
 
@@ -169,7 +170,7 @@ by `iter-yield` inside generator function.  To illustrate:
   Remember that calling `iter-yield` by its name is also illegal.
   I.e. like this:
 
-      (iter2-defun clever-but-illegal (&rest args)
+      (iter2-defun clever-but-illegal-2 (&rest args)
         (mapc #'iter-yield args))
 
   Unfortunately, the guard will not detect such things and they will
