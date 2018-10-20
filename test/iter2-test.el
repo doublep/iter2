@@ -1,6 +1,6 @@
 ;;; -*- lexical-binding: t -*-
 
-;;; Copyright (C) 2017 Paul Pogonyshev
+;;; Copyright (C) 2017-2018 Paul Pogonyshev
 
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
@@ -100,6 +100,9 @@
 
 (defmacro iter2--let-wrapper-2 (bindings &rest body)
   `(iter2--let-wrapper (,@bindings) ,@body))
+
+(defmacro iter2--save-match-data-wrapper (&rest body)
+  `(save-match-data ,@body))
 
 (defun iter2--test-byte-compiles-with-no-warnings (fn)
   (let* ((advice (lambda (format &rest arguments) (signal 'byte-compilation-warning (apply #'format-message format arguments)))))
@@ -640,6 +643,20 @@
       (iter2--test fn :expected '((1 . 1) (1 . 1)) :body ((should (> (point-max) (point-min))))))
     (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-save-match-data-1 ()
+  (iter2--runtime-eval fn (iter2-lambda (string regexp) (save-match-data (string-match regexp string) (iter-yield (match-string 0 string)) (iter-yield (match-string 1 string))))
+    (let ((string "iter2 is cool"))
+      (string-match "cool" string)
+      (iter2--test fn :args '("foo bar" "b\\(a\\)r") :expected '("bar" "a")
+                   :body ((should (equal (match-string 0 string) "cool")))))))
+
+(ert-deftest iter2-save-match-data-2 ()
+  (iter2--runtime-eval fn (iter2-lambda (string regexp) (iter2--save-match-data-wrapper (string-match regexp string) (iter-yield (match-string 0 string)) (iter-yield (match-string 1 string))))
+    (let ((string "iter2 is cool"))
+      (string-match "cool" string)
+      (iter2--test fn :args '("foo bar" "b\\(a\\)r") :expected '("bar" "a")
+                   :body ((should (equal (match-string 0 string) "cool")))))))
 
 (ert-deftest iter2-calls-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (list (iter-yield 1) (iter-yield 2) (iter-yield 3)))

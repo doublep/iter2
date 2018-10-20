@@ -228,7 +228,8 @@ See `iter2-defun' for details."
           converted
           new-continuations)
       (while (and body never-yields)
-        (let ((form (macroexpand (pop body))))
+        ;; Prevent `macroexpand' from expanding macros for which we have special handling.
+        (let ((form (macroexpand (pop body) '((save-match-data . nil)))))
           ;; Simplify certain forms, rewrite certain others using
           ;; special forms that we handle below.
           ;;
@@ -599,6 +600,23 @@ See `iter2-defun' for details."
                                                                 (car converted-body)
                                                                 '(point-min (point-min))
                                                                 '(point-max (point-max)))
+                       converted)
+                 (setq never-yields nil))))
+
+            ;; Handle `save-match-data' macro: not a special form, but without special
+            ;; handling doesn't produce intended results in generator functions.
+            (`(save-match-data . ,body)
+             (let ((converted-body (iter2--convert-progn body)))
+               (if (cdr converted-body)
+                   (push `(save-match-data ,@(macroexp-unprogn (car converted-body))) converted)
+                 (push (iter2--catcher-continuation-adding-form `(save-match-data
+                                                                   (set-match-data match-data)
+                                                                   (prog1 ,(iter2--continuation-invocation-form iter2--value)
+                                                                     (unless (eq ,iter2--continuations ,iter2--done)
+                                                                       (match-data nil match-data)
+                                                                       (push ,iter2--catcher ,iter2--continuations))))
+                                                                (car converted-body)
+                                                                '(match-data (match-data)))
                        converted)
                  (setq never-yields nil))))
 
