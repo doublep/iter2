@@ -34,27 +34,32 @@
   (let ((description (format-message "iterator %S" (if args `(apply ,function ,args) `(funcall ,function)))))
     ;; Don't create symbols for variables in a private macro: this lets
     ;; `returned-expression' have access to everything.
-    `(let ((it     (apply ,function ,args))
-           ,@(when returned `((to-return (cons nil ,returned))))
-           value
-           result
-           (length 0)
-           terminated-normally
-           end-value)
+    `(let* ((fn     ,function)
+            (it     (apply fn ,args))
+            ,@(when returned `((to-return (cons nil ,returned))))
+            value
+            result
+            (length 0)
+            terminated-normally
+            end-value)
        (condition-case error
-           (catch 'too-long
-             (while t
-               (setq value (iter-next it ,(if returned `(pop to-return) returned-expression)))
-               (when (> (setq length (1+ length)) ,(or max-length (+ (length expected) 5)))
-                 (throw 'too-long nil))
-               (push value result)
-               ,@body))
-         (iter-end-of-sequence (setq terminated-normally t
-                                     end-value           (cdr error))))
-       (setq result (nreverse result))
-       (should (equal (progn ,(format-message "%s yielded values" description) result) ,expected))
-       (when terminated-normally
-         (should (equal (progn ,(format-message "%s end value" description) end-value) ,end-value)))
+           (progn (condition-case error
+                      (catch 'too-long
+                        (while t
+                          (setq value (iter-next it ,(if returned `(pop to-return) returned-expression)))
+                          (when (> (setq length (1+ length)) ,(or max-length (+ (length expected) 5)))
+                            (throw 'too-long nil))
+                          (push value result)
+                          ,@body))
+                    (iter-end-of-sequence (setq terminated-normally t
+                                                end-value           (cdr error))))
+                  (setq result (nreverse result))
+                  (should (equal (progn ,(format-message "%s yielded values" description) result) ,expected))
+                  (when terminated-normally
+                    (should (equal (progn ,(format-message "%s end value" description) end-value) ,end-value))))
+         (error (princ "Pretty-printed failing function:\n")
+                (pp fn)
+                (signal (car error) (cdr error))))
        nil)))
 
 ;; To make sure that converted functions don't become too inefficient
@@ -217,7 +222,7 @@
 (iter2--test-no-yields iter2-no-yields-cond-empty
   (cond))
 
-(iter2--test-no-yields iter2-no-yields-cond-atomi
+(iter2--test-no-yields iter2-no-yields-cond-atomic
   (cond (42)))
 
 (iter2--test-no-yields iter2-no-yields-cond-complex
@@ -255,6 +260,13 @@
     (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-prog1-3 ()
+  (iter2--runtime-eval fn (iter2-lambda () (prog1 (iter-yield 1) (iter-yield 2) (iter-yield 3)))
+    (iter2--test fn                    :expected '(1 2 3))
+    (iter2--test fn :returned '(3 4 5) :expected '(1 2 3) :end-value 3)
+    (iter2--assert-num-lambdas fn 6)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-and-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (and 3 (iter-yield 1)))
     (iter2--test fn                :expected '(1))
@@ -277,6 +289,16 @@
     (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-and-4 ()
+  (iter2--runtime-eval fn (iter2-lambda () (and (iter-yield 1) (iter-yield 2) (iter-yield (iter-yield 3))))
+    (iter2--test fn                      :expected '(1))
+    (iter2--test fn :returned '(t)       :expected '(1 2)     :end-value nil)
+    (iter2--test fn :returned '(t t)     :expected '(1 2 3 nil))
+    (iter2--test fn :returned '(4 5 6)   :expected '(1 2 3 6))
+    (iter2--test fn :returned '(4 5 6 7) :expected '(1 2 3 6) :end-value 7)
+    (iter2--assert-num-lambdas fn 6)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-or-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (or 3 (iter-yield 1)))
     (iter2--test fn :expected '() :end-value 3)
@@ -296,6 +318,16 @@
     (iter2--test fn :returned '(t)     :expected '(1)   :end-value t)
     (iter2--test fn :returned '(nil 3) :expected '(1 2) :end-value 3)
     (iter2--assert-num-lambdas fn 4)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-or-4 ()
+  (iter2--runtime-eval fn (iter2-lambda () (or (iter-yield 1) (iter-yield 2) (iter-yield (iter-yield 3))))
+    (iter2--test fn                            :expected '(1 2 3 nil))
+    (iter2--test fn :returned '(t)             :expected '(1)         :end-value t)
+    (iter2--test fn :returned '(nil 4)         :expected '(1 2)       :end-value 4)
+    (iter2--test fn :returned '(nil nil 5)     :expected '(1 2 3 5))
+    (iter2--test fn :returned '(nil nil nil 6) :expected '(1 2 3 nil) :end-value 6)
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-if-1 ()
@@ -332,6 +364,13 @@
     (iter2--test fn                  :expected '(1 3))
     (iter2--test fn :returned '(t)   :expected '(1 2))
     (iter2--test fn :returned '(t t) :expected '(1 2) :end-value t)
+    (iter2--assert-num-lambdas fn 4)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-if-6 ()
+  (iter2--runtime-eval fn (iter2-lambda () (if (eq (iter-yield 1) 2) 3))
+    (iter2--test fn                  :expected '(1))
+    (iter2--test fn :returned '(2)   :expected '(1) :end-value 3)
     (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
@@ -382,7 +421,7 @@
     (iter2--test fn :returned '(1 -2)         :expected '(1 2))
     (iter2--test fn :returned '(1 1 nil 0 0)  :expected '(1 2 3 1 2))
     (iter2--test fn :returned '(-1 2 nil 0 0) :expected '(1 2 3 1 2))
-    (iter2--assert-num-lambdas fn 8)
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-let-1 ()
@@ -400,8 +439,8 @@
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-let-3 ()
-  ;; Byte-compilation warnings about unused `x' is expected here, so
-  ;; do not test for no warnings.
+  ;; Byte-compilation warning about unused `x' is expected here, so do
+  ;; not test for no warnings.
   (iter2--runtime-eval fn (iter2-lambda (x) (let ((x (iter-yield x)) (y x) (x 0) (x (iter-yield x))) (list x y)))
     (iter2--test fn :args '(1)                  :expected '(1 1) :end-value '(nil 1))
     (iter2--test fn :args '(1) :returned '(2 3) :expected '(1 1) :end-value '(3 1))
@@ -461,7 +500,7 @@
                    :body ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
       (iter2--test fn :returned '(1 2 3 4 5) :expected '(1 2 3 (1 2 3) (4 1 2 3)) :end-value 5
                    :body ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
-      (iter2--assert-num-lambdas fn 10)
+      (iter2--assert-num-lambdas fn 9)
       (iter2--test-byte-compiles-with-no-warnings fn))))
 
 (ert-deftest iter2-let-with-globals-3 ()
@@ -499,7 +538,7 @@
                    :body ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
       (iter2--test fn :returned '(1 2 3 4 5) :expected '(1 2 3 (1 2 3) (4 1 2 3)) :end-value 5
                    :body ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
-      (iter2--assert-num-lambdas fn 13)
+      (iter2--assert-num-lambdas fn 12)
       (iter2--test-byte-compiles-with-no-warnings fn))))
 
 (ert-deftest iter2-let*-with-globals-3 ()
@@ -531,6 +570,19 @@
     (iter2--test fn :args '(1) :returned '(5)       :expected '(1)     :end-value 7)
     (iter2--assert-num-lambdas fn 14)
     (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-unwind-protect-3 ()
+  (let ((n 0))
+    (iter2--runtime-eval fn (iter2-lambda (x y) (unwind-protect (progn (iter-yield (funcall x)) 0) (funcall y)))
+      (let (done)
+        (iter2--test fn :args (list (lambda () 1) (lambda () (setq done t))) :expected '(1) :end-value 0)
+        (should done))
+      (let (done)
+        (catch 'eek
+          (iter2--test fn :args (list (lambda () (throw 'eek nil)) (lambda () (setq done t)))))
+        (should done))
+      (iter2--assert-num-lambdas fn 8)
+      (iter2--test-byte-compiles-with-no-warnings fn))))
 
 (ert-deftest iter2-unwind-protect-close-1 ()
   (iter2--runtime-eval fn (iter2-lambda (done) (unwind-protect (iter-yield 1) (funcall done)))
@@ -578,7 +630,8 @@
 
 (ert-deftest iter2-catch-1 ()
   (iter2--runtime-eval fn (iter2-lambda (a b) (catch 'x (throw 'x (iter-yield a)) b))
-    (iter2--test fn :args '(1 2) :expected '(1))
+    (iter2--test fn :args '(1 2)                :expected '(1))
+    (iter2--test fn :args '(1 2) :returned '(3) :expected '(1) :end-value 3)
     (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
@@ -669,7 +722,7 @@
   (iter2--runtime-eval fn (iter2-lambda () (list (vector (iter-yield 1)) (vector (iter-yield 2)) (vector (iter-yield 3))))
     (iter2--test fn                    :expected '(1 2 3) :end-value '([nil] [nil] [nil]))
     (iter2--test fn :returned '(4 5 6) :expected '(1 2 3) :end-value '([4] [5] [6]))
-    (iter2--assert-num-lambdas fn 9)
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 ;; Written against a real bug caused by a typo in `iter2--stack-head-reversing-form'.
@@ -680,11 +733,28 @@
     (iter2--assert-num-lambdas fn 7)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-calls-4 ()
+  (iter2--runtime-eval fn (iter2-lambda () (> (+ (iter-yield 1) (iter-yield 2)) 0))
+    (iter2--test fn :returned '(1 1) :expected '(1 2) :end-value t)
+    (iter2--test fn :returned '(0 0) :expected '(1 2) :end-value nil)
+    (iter2--assert-num-lambdas fn 5)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-nested-yields-1 ()
+  (iter2--runtime-eval fn (iter2-lambda (&optional x) (iter-yield (iter-yield x)))
+    (iter2--test fn                             :expected '(nil nil))
+    (iter2--test fn :args '(1)                  :expected '(1 nil))
+    (iter2--test fn :args '(2) :returned '(3 4) :expected '(2 3) :end-value 4)
+    (iter2--assert-num-lambdas fn 4)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-yield-from-1 ()
   (iter2--runtime-eval fn1 (iter2-lambda (&rest values_) (while values_ (iter-yield (pop values_))))
     (iter2--runtime-eval fn2 (iter2-lambda (it) (iter-yield-from it))
       (iter2--test fn1 :args '(1 2 3)                   :expected '(1 2 3))
       (iter2--test fn2 :args (list (funcall fn1 1 2 3)) :expected '(1 2 3))
+      (iter2--assert-num-lambdas fn1 4)
+      (iter2--assert-num-lambdas fn2 11)
       (iter2--test-byte-compiles-with-no-warnings fn1)
       (iter2--test-byte-compiles-with-no-warnings fn2))))
 
@@ -692,6 +762,7 @@
   ;; Test with a macro that expands to (another) macro.
   (iter2--runtime-eval fn (iter2-lambda () (iter2--let-wrapper-2 ((x 1)) (iter-yield x)))
     (iter2--test fn :expected '(1))
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-with-no-warnings-1 ()
@@ -699,6 +770,7 @@
          (fn       (eval `(iter2-lambda () (with-no-warnings (set ',variable (iter-yield 1)))) t)))
     (iter2--test fn                :expected '(1))
     (iter2--test fn :returned '(2) :expected '(1) :end-value 2)
+    (iter2--assert-num-lambdas fn 4)
     (makunbound variable)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
@@ -709,5 +781,6 @@
     (should (equal (symbol-value variable) nil))
     (iter2--test fn :returned '(2) :expected '(1) :end-value 10)
     (should (equal (symbol-value variable) 2))
+    (iter2--assert-num-lambdas fn 5)
     (makunbound variable)
     (iter2--test-byte-compiles-with-no-warnings fn)))

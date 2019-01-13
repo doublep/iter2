@@ -38,6 +38,7 @@
 ;; For `iter-yield' etc. from the original `generator' package.
 (require 'generator)
 (require 'macroexp)
+(require 'subr-x)
 
 
 (defgroup iter2 nil
@@ -87,15 +88,16 @@ variable.")
 
 (defvar iter2--tracing-depth 0)
 
-(defvar iter2--value         nil)
-(defvar iter2--continuations nil)
-(defvar iter2--cleanups      nil)
-(defvar iter2--stack         nil)
-(defvar iter2--yielding      nil)
-(defvar iter2--done          nil)
-(defvar iter2--stack-state   nil)
-(defvar iter2--catcher       nil)
-(defvar iter2--cleanups-used nil)
+(defvar iter2--value           nil)
+(defvar iter2--continuations   nil)
+(defvar iter2--cleanups        nil)
+(defvar iter2--stack           nil)
+(defvar iter2--yielding        nil)
+(defvar iter2--done            nil)
+(defvar iter2--stack-state     nil)
+(defvar iter2--catcher         nil)
+(defvar iter2--cleanups-used   nil)
+(defvar iter2--converter-depth 0)
 
 
 (defmacro iter2-defun (name arglist &rest body)
@@ -158,9 +160,14 @@ See `iter2-defun' for details."
   (declare (debug (form)))
   `(iter2--convert-form (macroexp-progn ,forms)))
 
-(defmacro iter2--add-converted-form (place converted)
+(defmacro iter2--add-converted-form (place converted-form)
   (declare (debug (place form)))
-  `(setf ,place (nconc (nreverse (macroexp-unprogn (car ,converted))) ,place)))
+  `(setf ,place (nconc (reverse (macroexp-unprogn ,converted-form)) ,place)))
+
+(defmacro iter2--finish-chunk (converted-chunks converted &rest next-chunk-forms)
+  (declare (debug (place place &rest form)))
+  `(setf ,converted-chunks (cons (macroexp-progn (nreverse ,converted)) ,converted-chunks)
+         ,converted        ,(when next-chunk-forms `(list ,@next-chunk-forms))))
 
 (defun iter2--convert-function-body (body &optional tracing)
   (unless lexical-binding
@@ -192,7 +199,9 @@ See `iter2-defun' for details."
              ,@(when iter2--cleanups-used (list iter2--cleanups))
              ,iter2--stack
              ,iter2--yielding)
-         (setq ,iter2--continuations (list (lambda (,iter2--value) ,@(macroexp-unprogn (car converted)))))
+         ;; Must not be moved to `let' above, since the lambda accesses the other
+         ;; variables declared there.
+         (setq ,iter2--continuations (list (lambda (,iter2--value) ,@(macroexp-unprogn (iter2--merge-continuation-form converted)))))
          (lambda (operation value)
            (cond ((eq operation :next)
                   ,@(funcall apply-debugger
@@ -215,19 +224,22 @@ See `iter2-defun' for details."
                                       ,iter2--stack         nil))))
                  (t (error "Unknown iterator operation %S" operation))))))))
 
-;; Returns (CONVERTED-FORM . NEVER-YIELDS)
+;; Returns (CONVERTED-FORM . CONTINUATION-FORM)
+;;
+;; if CONVERTED-FORM never yields, CONTINUATION-FORM is nil.  CONTINUATION-FORM itself
+;; never yields.
 ;;
 ;; Since this function is recursive, it can certainly run out of stack
 ;; on complicated forms if not byte-compiled.
-(defun iter2--convert-form (form &optional continuation-if-yields)
+(defun iter2--convert-form (form)
   (if (atom form)
       ;; Speed optimizations, also simplifies debugging a bit.
-      (cons form t)
+      (cons form nil)
     (let ((body (macroexp-unprogn form))
-          (never-yields t)
+          can-yield
           converted
-          new-continuations)
-      (while (and body never-yields)
+          converted-chunks)
+      (while body
         ;; Prevent `macroexpand' from expanding macros for which we have special handling.
         (let ((form (macroexpand (pop body) '((save-match-data . nil)))))
           ;; Simplify certain forms, rewrite certain others using
@@ -263,10 +275,10 @@ See `iter2-defun' for details."
                      (setq form rewritten-form))))
           (pcase form
 
-            ;; Handle nested lambdas: optionally check them for yields.
+            ;; Handle nested lambdas; optionally check them for yields.
             (`(function (lambda ,_lambda-args . ,lambda-body))
              ;; Could write a faster function here, but probably not performance-critical.
-             (when (and iter2-detect-nested-lambda-yields (not (cdr (iter2--convert-progn lambda-body))))
+             (when (and iter2-detect-nested-lambda-yields (cdr (iter2--convert-progn lambda-body)))
                (error "Nested anonymous function %S yields, which will fail at runtime" (cadr form)))
              (push form converted))
 
@@ -277,68 +289,72 @@ See `iter2-defun' for details."
             ;; Handle (and CONDITIONS...) and (or CONDITIONS...).
             (`(,(and (or 'and 'or) operator) . ,conditions)
              (let (plain-conditions)
-               (while (and conditions never-yields)
-                 (let ((converted-condition (iter2--convert-form (pop conditions))))
+               (while (and conditions (not can-yield))
+                 (let* ((converted-condition      (iter2--convert-form (pop conditions)))
+                        (converted-condition-form (car converted-condition)))
                    (if (cdr converted-condition)
-                       (push (car converted-condition) plain-conditions)
-                     (let ((form (car converted-condition)))
-                       (when conditions
-                         (setq form `(progn ,(iter2--continuation-adding-form (list (car (iter2--convert-form `(,operator ,iter2--value ,@conditions)))))
-                                            ,@(macroexp-unprogn form))))
-                       (when plain-conditions
-                         (setq form `(,operator ,@(nreverse plain-conditions) ,form)))
-                       (push form converted)
-                       (setq never-yields nil)))))
-               (when never-yields
+                       (progn
+                         (if conditions
+                             (let ((converted-continuation (iter2--convert-form `(,operator ,(cdr converted-condition) ,@conditions))))
+                               (setq converted-condition-form `(progn ,(iter2--continuation-adding-form (list (iter2--merge-continuation-form converted-continuation)))
+                                                                      ,@(macroexp-unprogn converted-condition-form))))
+                           (setq converted-condition-form (iter2--merge-continuation-form converted-condition)))
+                         (when plain-conditions
+                           (setq converted-condition-form `(,operator ,@(nreverse plain-conditions) ,converted-condition-form)))
+                         (iter2--add-converted-form converted converted-condition-form)
+                         (setq can-yield t))
+                     (push converted-condition-form plain-conditions))))
+               (unless can-yield
                  (push `(,operator ,@(nreverse plain-conditions)) converted))))
 
             ;; Handle (if CONDITION THEN [ELSE...]).
             (`(if ,condition ,then . ,else)
-             (let ((converted-condition (iter2--convert-form condition)))
+             (let ((converted-condition (iter2--convert-form condition))
+                   (converted-then      (iter2--convert-form  then))
+                   (converted-else      (iter2--convert-progn else)))
                (if (cdr converted-condition)
-                   (let ((converted-then (iter2--convert-form then))
-                         (converted-else (iter2--convert-progn else)))
-                     (push `(if ,(car converted-condition) ,(car converted-then) ,@(when else (macroexp-unprogn (car converted-else)))) converted)
-                     (setq never-yields (and (cdr converted-then) (cdr converted-else))))
-                 (iter2--add-converted-form converted converted-condition)
-                 (push `(if ,iter2--value ,then ,@else) body)
-                 (setq never-yields nil))))
+                   (progn (iter2--add-converted-form converted (car converted-condition))
+                          (iter2--finish-chunk converted-chunks converted
+                                               `(if ,(cdr converted-condition)
+                                                    ,(iter2--merge-continuation-form converted-then)
+                                                  ,@(when else (macroexp-unprogn (iter2--merge-continuation-form converted-else))))))
+                 (push `(if ,(car converted-condition)
+                            ,(iter2--merge-continuation-form converted-then)
+                          ,@(when else (macroexp-unprogn (iter2--merge-continuation-form converted-else))))
+                       converted))
+               (setq can-yield (or (cdr converted-then) (cdr converted-else)))))
 
             ;; Handle (while CONDITION [WHILE-BODY...]).
             (`(while ,condition . ,while-body)
-             (let* ((converted-while-body (iter2--convert-progn while-body))
-                    (converted-condition  (iter2--convert-form condition
-                                                               (when while-body
-                                                                 `(if ,iter2--value
-                                                                      ,(macroexp-progn (cons `(setq ,iter2--continuations (cons (car ,iter2--stack) ,iter2--continuations))
-                                                                                             (macroexp-unprogn (car converted-while-body))))
-                                                                    (setq ,iter2--stack (cdr ,iter2--stack)))))))
-               (if (cdr converted-condition)
-                   (if (cdr converted-while-body)
-                       ;; Nothing yields, the simplest case.
-                       (push `(while ,(car converted-condition) ,@(when while-body (macroexp-unprogn (car converted-while-body)))) converted)
-                     ;; Only body yields.
-                     (push (iter2--continuation-adding-form (list `(if ,(car converted-condition)
-                                                                       (progn (setq ,iter2--continuations (cons (car ,iter2--stack) ,iter2--continuations))
-                                                                              ,@(macroexp-unprogn (car converted-while-body)))
-                                                                     (setq ,iter2--stack (cdr ,iter2--stack))))
-                                                            iter2--stack)
-                           converted)
-                     (push (iter2--continuation-invocation-form nil `(car ,iter2--stack)) converted)
-                     (setq never-yields nil))
-                 ;; Condition yields; whether body yields too is not relevant.  Note that
-                 ;; we have added extra continuation at the conversion step above.
-                 (push (iter2--continuation-adding-form (list (if while-body
-                                                                  (car converted-condition)
-                                                                ;; Special optimization for the case of empty `while' body.
-                                                                `(if ,iter2--value
-                                                                     ,(macroexp-progn (cons `(setq ,iter2--continuations (cons (car ,iter2--stack) ,iter2--continuations))
-                                                                                             (macroexp-unprogn (car converted-condition))))
-                                                                    (setq ,iter2--stack (cdr ,iter2--stack)))))
-                                                        iter2--stack)
-                       converted)
-                 (push (iter2--continuation-invocation-form (null while-body) `(car ,iter2--stack)) converted)
-                 (setq never-yields nil))))
+             (let* ((converted-condition  (iter2--convert-form condition))
+                    (converted-while-body (when while-body (iter2--convert-progn while-body))))
+               (if (or (cdr converted-condition) (cdr converted-while-body))
+                   (let ((special-empty-body (and (null while-body) (eq (cdr converted-condition) iter2--value))))
+                     (when while-body
+                       (setq converted-while-body (iter2--merge-continuation-form converted-while-body)))
+                     (if (cdr converted-condition)
+                         ;; Condition yields; whether body yields too is not relevant.
+                         (let ((inner-form `(if ,(cdr converted-condition)
+                                                (progn (setq ,iter2--continuations (cons (car ,iter2--stack) ,iter2--continuations))
+                                                       ,@(macroexp-unprogn (if special-empty-body (car converted-condition) converted-while-body)))
+                                              (setq ,iter2--stack (cdr ,iter2--stack)))))
+                           (push (iter2--continuation-adding-form (list (if special-empty-body
+                                                                            inner-form
+                                                                          `(progn ,(iter2--continuation-adding-form (list inner-form))
+                                                                                  ,@(macroexp-unprogn (car converted-condition)))))
+                                                                  iter2--stack)
+                                 converted))
+                       ;; Only body yields.
+                       (push (iter2--continuation-adding-form (list `(if ,(car converted-condition)
+                                                                         (progn (setq ,iter2--continuations (cons (car ,iter2--stack) ,iter2--continuations))
+                                                                                ,@(macroexp-unprogn converted-while-body))
+                                                                       (setq ,iter2--stack (cdr ,iter2--stack))))
+                                                              iter2--stack)
+                             converted))
+                     (push (iter2--continuation-invocation-form special-empty-body `(car ,iter2--stack)) converted)
+                     (setq can-yield t))
+                 ;; Nothing yields, the simplest case.
+                 (push `(while ,(car converted-condition) ,@(when while-body (macroexp-unprogn (car converted-while-body)))) converted))))
 
             ;; Handle (let (BINDINGS) LET-BODY) and (let* (BINDINGS) LET-BODY).
             (`(,(and (or 'let 'let*) let-kind) ,bindings . ,let-body)
@@ -370,37 +386,38 @@ See `iter2-defun' for details."
                             (push binding converted-bindings)
                             (when plain-let
                               (push binding next-continuation-bindings)))
-                           ((eq value iter2--stack)
+                           ((eq value iter2--stack-state)
                             ;; This is our private internal flag that means "take a
                             ;; previously computed value from the stack".  Stack is only
                             ;; used for plain `let', never for `let*'.
                             (push `(,var (pop ,iter2--stack)) converted-bindings)
-                            (push `(,var ,iter2--stack) next-continuation-bindings)
+                            (push `(,var ,iter2--stack-state) next-continuation-bindings)
                             (setq num-stack-values (1+ num-stack-values)))
                            (t
-                            (let ((converted-value (iter2--convert-form value)))
+                            (let* ((converted-value      (iter2--convert-form value))
+                                   (converted-value-form (car converted-value)))
                               (if (cdr converted-value)
-                                  (progn (push `(,var ,(car converted-value)) converted-bindings)
-                                         (when plain-let
-                                           (push `(,var ,iter2--stack) next-continuation-bindings)
-                                           (push (car converted-value) values-to-save-on-stack)))
-                                (if (or plain-let (null converted-bindings))
-                                    ;; Yielding before anything is bound.
-                                    (progn (when values-to-save-on-stack
-                                             (push (iter2--stack-adding-form (nreverse values-to-save-on-stack)) converted))
-                                           (iter2--add-converted-form converted converted-value)
-                                           (push (car (iter2--convert-progn (cons `(,let-kind (,@(nreverse next-continuation-bindings) (,var ,iter2--value) ,@bindings)
-                                                                                              ,@let-body)
-                                                                                  body)))
-                                                 new-continuations)
-                                           (setq body nil))
-                                  ;; We need to bind already converted values now.
-                                  (push (iter2--let*-yielding-form catcher-outer-bindings catcher-inner-bindings
-                                                                   (car (iter2--convert-form `(let* ((,var ,iter2--value) ,@bindings) ,@let-body)))
-                                                                   (car converted-value))
-                                        converted))
-                                (setq bindings     nil
-                                      never-yields nil)))))
+                                  (progn (if (or plain-let (null converted-bindings))
+                                             ;; Yielding before anything is bound.
+                                             (progn (when values-to-save-on-stack
+                                                      (push (iter2--stack-adding-form (nreverse values-to-save-on-stack)) converted))
+                                                    (iter2--add-converted-form converted converted-value-form)
+                                                    (iter2--finish-chunk converted-chunks converted
+                                                                         (iter2--merge-continuation-form (iter2--convert-form `(,let-kind (,@(nreverse next-continuation-bindings)
+                                                                                                                                                  (,var ,(cdr converted-value))
+                                                                                                                                                  ,@bindings)
+                                                                                                                                         ,@let-body)))))
+                                           ;; We need to bind already converted values now.
+                                           (push (iter2--let*-yielding-form catcher-outer-bindings catcher-inner-bindings
+                                                                            (iter2--merge-continuation-form (iter2--convert-form `(let* ((,var ,iter2--value) ,@bindings) ,@let-body)))
+                                                                            (iter2--merge-continuation-form converted-value))
+                                                 converted))
+                                         (setq bindings  nil
+                                               can-yield t))
+                                (push `(,var ,converted-value-form) converted-bindings)
+                                (when plain-let
+                                  (push `(,var ,iter2--stack-state) next-continuation-bindings)
+                                  (push converted-value-form values-to-save-on-stack))))))
                      (if (or literal (not special))
                          (push (car converted-bindings) (if special catcher-inner-bindings catcher-outer-bindings))
                        (let ((private-storage-var (make-symbol (format "$%s" (symbol-name var)))))
@@ -410,13 +427,14 @@ See `iter2-defun' for details."
                      ;; catchers for `let*'.
                      (when (and special (not plain-let))
                        (push nil catcher-outer-bindings)))))
-               (when never-yields
+               (unless can-yield
                  (when (> num-stack-values 1)
                    (push (iter2--stack-head-reversing-form num-stack-values) converted))
-                 (let ((converted-let-body (iter2--convert-progn let-body)))
-                   (if (or (cdr converted-let-body) (null catcher-inner-bindings))
-                       (progn (push `(,let-kind (,@(nreverse converted-bindings)) ,@(macroexp-unprogn (car converted-let-body))) converted)
-                              (setq never-yields (cdr converted-let-body)))
+                 (let* ((converted-let-body      (iter2--convert-progn let-body))
+                        (converted-let-body-form (iter2--merge-continuation-form converted-let-body)))
+                   (if (or (null (cdr converted-let-body)) (null catcher-inner-bindings))
+                       (progn (push `(,let-kind (,@(nreverse converted-bindings)) ,@(macroexp-unprogn converted-let-body-form)) converted)
+                              (setq can-yield (cdr converted-let-body)))
                      ;; Let body yields and we have special (dynamic) bindings.
                      (push (if plain-let
                                `(let (,@(nreverse catcher-outer-bindings))
@@ -424,63 +442,69 @@ See `iter2-defun' for details."
                                                                                (prog1 ,(iter2--continuation-invocation-form iter2--value)
                                                                                  (unless (eq ,iter2--continuations ,iter2--done)
                                                                                    (push ,iter2--catcher ,iter2--continuations))))
-                                                                            (car converted-let-body)))
-                             (iter2--let*-yielding-form catcher-outer-bindings catcher-inner-bindings (car converted-let-body)))
+                                                                            converted-let-body-form))
+                             (iter2--let*-yielding-form catcher-outer-bindings catcher-inner-bindings converted-let-body-form))
                            converted)
-                     (setq never-yields nil))))))
+                     (setq can-yield t))))))
 
             ;; Handle (prog1 VALUE [BODY...]).
             (`(prog1 ,value . ,rest)
-             (let ((converted-value (iter2--convert-form value)))
-               (if (cdr converted-value)
-                   (let ((converted-rest (iter2--convert-progn rest)))
-                     (if (cdr converted-rest)
-                         (push `(prog1 ,(car converted-value) ,@(macroexp-unprogn (car converted-rest))) converted)
-                       (push `(setq ,iter2--stack (cons ,(car converted-value) ,iter2--stack)) converted)
-                       (iter2--add-converted-form converted converted-rest)
-                       (push `(pop ,iter2--stack) new-continuations)))
-                 (iter2--add-converted-form converted converted-value)
-                 (push `(prog1 ,iter2--value ,@rest) body)
-                 (setq never-yields nil))))
+             (let ((converted-value (iter2--convert-form  value))
+                   (converted-rest  (iter2--convert-progn rest)))
+               (if (or (cdr converted-value) (cdr converted-rest))
+                   (progn (when (cdr converted-value)
+                            (iter2--add-converted-form converted (car converted-value))
+                            (iter2--finish-chunk converted-chunks converted))
+                          (if (cdr converted-rest)
+                              (progn (push `(push ,(or (cdr converted-value) (car converted-value)) ,iter2--stack) converted)
+                                     (iter2--add-converted-form converted (car converted-rest))
+                                     (iter2--finish-chunk converted-chunks converted `(pop ,iter2--stack)))
+                            (push `(prog1 ,(cdr converted-value) ,@rest) converted)))
+                 (push `(prog1 ,(car converted-value) ,@(macroexp-unprogn (car converted-rest))) converted))))
 
             ;; Handle (unwind-protect BODY-FORM CLEANUP-FORMS...).
             (`(unwind-protect ,body-form . ,cleanup-forms)
              (let ((converted-body-form     (iter2--convert-form body-form))
                    (converted-cleanup-forms (iter2--convert-progn cleanup-forms)))
-               (unless (cdr converted-cleanup-forms)
+               (when (cdr converted-cleanup-forms)
                  (error "Yielding from cleanup forms in `unwind-protect' is not allowed: %S" cleanup-forms))
                (if (cdr converted-body-form)
-                   (push `(unwind-protect ,(car converted-body-form) ,@(macroexp-unprogn (car converted-cleanup-forms))) converted)
-                 (push `(setq ,iter2--cleanups (cons (lambda () ,@(macroexp-unprogn (car converted-cleanup-forms))) ,iter2--cleanups)) converted)
-                 ;; No need to use private variable names as we don't include any user code.
-                 (push (iter2--catcher-continuation-adding-form `(let (result)
-                                                                   (unwind-protect
-                                                                       (prog1 ,(iter2--continuation-invocation-form iter2--value)
-                                                                         (setq result (if (eq ,iter2--continuations ,iter2--done) ,iter2--yielding 'continuing)))
-                                                                     (if result
-                                                                         (push (if (eq result t)
-                                                                                   ;; Completed body, but yielded.  Clean up when control is regained.
-                                                                                   (lambda (,iter2--value) ,(iter2--cleanup-invocation-body) ,iter2--value)
-                                                                                 ;; Continuing.  Re-add self.
-                                                                                 ,iter2--catcher)
-                                                                               ,iter2--continuations)
-                                                                       ;; Either exited non-locally, or completed body and haven't yielded.
-                                                                       ,(iter2--cleanup-invocation-body))))
-                                                                (car converted-body-form))
-                       converted)
-                 (setq never-yields         nil
-                       iter2--cleanups-used t))))
+                   (progn
+                     (push `(setq ,iter2--cleanups (cons (lambda () ,@(macroexp-unprogn (car converted-cleanup-forms))) ,iter2--cleanups)) converted)
+                     ;; No need to use private variable names as we don't include any user code.
+                     (push (iter2--catcher-continuation-adding-form `(let (result)
+                                                                       (unwind-protect
+                                                                           (prog1 ,(iter2--continuation-invocation-form iter2--value)
+                                                                             (setq result (if (eq ,iter2--continuations ,iter2--done) ,iter2--yielding 'continuing)))
+                                                                         (if result
+                                                                             (push (if (eq result t)
+                                                                                       ;; Completed body, but yielded.  Clean up when control is regained.
+                                                                                       (lambda (,iter2--value) ,(iter2--cleanup-invocation-body) ,iter2--value)
+                                                                                     ;; Continuing.  Re-add self.
+                                                                                     ,iter2--catcher)
+                                                                                   ,iter2--continuations)
+                                                                           ;; Either exited non-locally, or completed body and haven't yielded.
+                                                                           ,(iter2--cleanup-invocation-body))))
+                                                                    (iter2--merge-continuation-form converted-body-form))
+                           converted)
+                     (setq can-yield            t
+                           iter2--cleanups-used t))
+                   (push `(unwind-protect ,(car converted-body-form) ,@(macroexp-unprogn (car converted-cleanup-forms))) converted))))
 
             ;; Handle (catch TAG BODY).
             (`(catch ,tag . ,catch-body)
-             (let ((converted-tag (iter2--convert-form tag)))
-               (if (cdr converted-tag)
-                   (let ((converted-catch-body (iter2--convert-progn catch-body)))
-                     (if (cdr converted-catch-body)
-                         (push `(catch ,(car converted-tag) ,@(macroexp-unprogn (car converted-catch-body))) converted)
+             (let* ((converted-tag      (iter2--convert-form tag))
+                    (converted-tag-form (car converted-tag)))
+               (when (cdr converted-tag)
+                 (iter2--add-converted-form converted converted-tag-form)
+                 (iter2--finish-chunk converted-chunks converted)
+                 (setq converted-tag-form (cdr converted-tag)))
+               (let ((converted-catch-body (iter2--convert-progn catch-body)))
+                 (if (cdr converted-catch-body)
+                     (let ((literal-tag (iter2--literalp converted-tag-form)))
                        ;; No need to use private variable names as we don't include any user code.
                        (push (iter2--catcher-continuation-adding-form `(let (completed-normally)
-                                                                         (prog1 (catch ,(if (iter2--literalp tag) tag 'tag)
+                                                                         (prog1 (catch ,(if literal-tag converted-tag-form 'tag)
                                                                                   (prog1 ,(iter2--continuation-invocation-form iter2--value)
                                                                                     (setq completed-normally t)
                                                                                     (unless (eq ,iter2--continuations ,iter2--done)
@@ -488,143 +512,142 @@ See `iter2-defun' for details."
                                                                            (unless completed-normally
                                                                              (setq ,iter2--continuations ,iter2--done
                                                                                    ,iter2--stack         ,iter2--stack-state))))
-                                                                      (car converted-catch-body)
+                                                                      (iter2--merge-continuation-form converted-catch-body)
                                                                       `(,iter2--stack-state ,iter2--stack)
-                                                                      (unless (iter2--literalp tag) `(tag ,tag)))
+                                                                      (unless literal-tag `(tag ,converted-tag-form)))
                              converted)
-                       (setq never-yields nil)))
-                 (iter2--add-converted-form converted converted-tag)
-                 (push `(catch ,iter2--value ,@catch-body) body)
-                 (setq never-yields nil))))
+                       (setq can-yield t))
+                   (push `(catch ,converted-tag-form ,@(macroexp-unprogn (car converted-catch-body))) converted)))))
 
             ;; Handle (condition-case VAR BODY-FORM HANDLERS...).
             (`(condition-case ,var ,body-form . ,handlers)
-             (let ((converted-body-form (iter2--convert-form body-form))
+             (let ((converted-body (iter2--convert-form body-form))
                    converted-handlers)
                (dolist (handler handlers)
                  (pcase handler
                    (`(,condition . ,handler-body)
                     (let ((converted-handler (iter2--convert-progn handler-body)))
-                      (push `(,condition ,@(macroexp-unprogn (car converted-handler))) converted-handlers)
-                      (unless (cdr converted-handler)
-                        (setq never-yields nil))))
+                      (push `(,condition ,@(macroexp-unprogn (iter2--merge-continuation-form converted-handler))) converted-handlers)
+                      (when (cdr converted-handler)
+                        (setq can-yield t))))
                    (_
                     (error "Invalid `condition-case' error handler: %S" handler))))
                (setq converted-handlers (nreverse converted-handlers))
-               (if (cdr converted-body-form)
-                   (push `(condition-case ,var ,(car converted-body-form) ,@converted-handlers) converted)
-                 (push (iter2--catcher-continuation-adding-form `(condition-case ,var
-                                                                     (prog1 ,(iter2--continuation-invocation-form iter2--value)
-                                                                       (unless (eq ,iter2--continuations ,iter2--done)
-                                                                         (push ,iter2--catcher ,iter2--continuations)))
-                                                                   ,@(mapcar (lambda (handler)
-                                                                               `(,(car handler)
-                                                                                 (setq ,iter2--continuations ,iter2--done ,iter2--stack ,iter2--stack-state)
-                                                                                 ,@(cdr handler)))
-                                                                             converted-handlers))
-                                                                (car converted-body-form)
-                                                                `(,iter2--stack-state ,iter2--stack))
-                       converted)
-                 (setq never-yields nil))))
+               (if (cdr converted-body)
+                   (progn (push (iter2--catcher-continuation-adding-form `(condition-case ,var
+                                                                              (prog1 ,(iter2--continuation-invocation-form iter2--value)
+                                                                                (unless (eq ,iter2--continuations ,iter2--done)
+                                                                                  (push ,iter2--catcher ,iter2--continuations)))
+                                                                            ,@(mapcar (lambda (handler)
+                                                                                        `(,(car handler)
+                                                                                          (setq ,iter2--continuations ,iter2--done ,iter2--stack ,iter2--stack-state)
+                                                                                          ,@(cdr handler)))
+                                                                                      converted-handlers))
+                                                                         (iter2--merge-continuation-form converted-body)
+                                                                         `(,iter2--stack-state ,iter2--stack))
+                                converted)
+                          (setq can-yield t))
+                 (push `(condition-case ,var ,(car converted-body) ,@converted-handlers) converted))))
 
             ;; Handle (iter-yield VALUE).
             (`(iter-yield . ,rest)
              (unless (and (consp rest) (null (cdr rest)))
                (error "Form `iter-yield' must be used with exactly one argument: %S" form))
-             (let ((converted-value (iter2--convert-form (car rest))))
-               (if (cdr converted-value)
-                   (let ((yield-value-form (if iter2-generate-tracing-functions
-                                               `(let ((,iter2--value ,(car converted-value)))
-                                                  (iter2--do-trace "yielding %S" ,iter2--value)
-                                                  ,iter2--value)
-                                             (car converted-value))))
-                     (if (iter2--literal-or-variable-p yield-value-form)
-                         (progn (push `(setq ,iter2--yielding t) converted)
-                                (push yield-value-form converted))
-                       ;; It might be unsafe to set yielding flag first: what if the value
-                       ;; form exits non-locally?
-                       (push `(prog1 ,yield-value-form (setq ,iter2--yielding t)) converted)))
-                 (iter2--add-converted-form converted converted-value)
-                 (push `(iter-yield ,iter2--value) body)))
-             (setq never-yields nil))
+             (let* ((converted-value      (iter2--convert-form (car rest)))
+                    (converted-value-form (car converted-value)))
+               (when iter2-generate-tracing-functions
+                 (setq converted-value-form `((let ((,iter2--value ,converted-value-form))
+                                                (iter2--do-trace "yielding %S" ,iter2--value)
+                                                ,iter2--value))))
+               (when (cdr converted-value)
+                 (iter2--add-converted-form converted converted-value-form)
+                 (iter2--finish-chunk converted-chunks converted)
+                 (setq converted-value-form (cdr converted-value)))
+               (if (iter2--literal-or-variable-p converted-value-form)
+                   (progn (push `(setq ,iter2--yielding t) converted)
+                          (push converted-value-form converted))
+                 ;; It might be unsafe to set yielding flag first: what if the value
+                 ;; form exits non-locally?
+                 (push `(prog1 ,converted-value-form (setq ,iter2--yielding t)) converted))
+               (setq can-yield t)))
 
             ;; Handle `save-excursion'.
             (`(save-excursion . ,body)
              (let ((converted-body (iter2--convert-progn body)))
                (if (cdr converted-body)
-                   (push `(save-excursion ,@(macroexp-unprogn (car converted-body))) converted)
-                 (push (iter2--catcher-continuation-adding-form `(save-excursion
-                                                                   ;; Byte compiler gives a dumb warning here,
-                                                                   ;; suggesting to use `with-current-buffer'.
-                                                                   (with-no-warnings (set-buffer buffer))
-                                                                   (goto-char  point)
-                                                                   (prog1 ,(iter2--continuation-invocation-form iter2--value)
-                                                                     (unless (eq ,iter2--continuations ,iter2--done)
-                                                                       (setq buffer (current-buffer)
-                                                                             point  (point))
-                                                                       (push ,iter2--catcher ,iter2--continuations))))
-                                                                (car converted-body)
-                                                                '(buffer (current-buffer))
-                                                                '(point  (point)))
-                       converted)
-                 (setq never-yields nil))))
+                   (progn (push (iter2--catcher-continuation-adding-form `(save-excursion
+                                                                            ;; Byte compiler gives a dumb warning here,
+                                                                            ;; suggesting to use `with-current-buffer'.
+                                                                            (with-no-warnings (set-buffer buffer))
+                                                                            (goto-char  point)
+                                                                            (prog1 ,(iter2--continuation-invocation-form iter2--value)
+                                                                              (unless (eq ,iter2--continuations ,iter2--done)
+                                                                                (setq buffer (current-buffer)
+                                                                                      point  (point))
+                                                                                (push ,iter2--catcher ,iter2--continuations))))
+                                                                         (iter2--merge-continuation-form converted-body)
+                                                                         '(buffer (current-buffer))
+                                                                         '(point  (point)))
+                                converted)
+                          (setq can-yield t))
+                 (push `(save-excursion ,@(macroexp-unprogn (car converted-body))) converted))))
 
             ;; Handle `save-current-buffer'.
             (`(save-current-buffer . ,body)
              (let ((converted-body (iter2--convert-progn body)))
                (if (cdr converted-body)
-                   (push `(save-current-buffer ,@(macroexp-unprogn (car converted-body))) converted)
-                 (push (iter2--catcher-continuation-adding-form `(save-current-buffer
-                                                                   (set-buffer buffer)
-                                                                   (prog1 ,(iter2--continuation-invocation-form iter2--value)
-                                                                     (unless (eq ,iter2--continuations ,iter2--done)
-                                                                       (setq buffer (current-buffer))
-                                                                       (push ,iter2--catcher ,iter2--continuations))))
-                                                                (car converted-body)
-                                                                '(buffer (current-buffer)))
-                       converted)
-                 (setq never-yields nil))))
+                   (progn (push (iter2--catcher-continuation-adding-form `(save-current-buffer
+                                                                            (set-buffer buffer)
+                                                                            (prog1 ,(iter2--continuation-invocation-form iter2--value)
+                                                                              (unless (eq ,iter2--continuations ,iter2--done)
+                                                                                (setq buffer (current-buffer))
+                                                                                (push ,iter2--catcher ,iter2--continuations))))
+                                                                         (iter2--merge-continuation-form converted-body)
+                                                                         '(buffer (current-buffer)))
+                                converted)
+                          (setq can-yield t))
+                 (push `(save-current-buffer ,@(macroexp-unprogn (car converted-body))) converted))))
 
             ;; Handle `save-restriction'.
             (`(save-restriction . ,body)
              (let ((converted-body (iter2--convert-progn body)))
                (if (cdr converted-body)
-                   (push `(save-restriction ,@(macroexp-unprogn (car converted-body))) converted)
-                 (push (iter2--catcher-continuation-adding-form `(save-restriction
-                                                                   (narrow-to-region point-min point-max)
-                                                                   (prog1 ,(iter2--continuation-invocation-form iter2--value)
-                                                                     (unless (eq ,iter2--continuations ,iter2--done)
-                                                                       (setq point-min (point-min)
-                                                                             point-max (point-max))
-                                                                       (push ,iter2--catcher ,iter2--continuations))))
-                                                                (car converted-body)
-                                                                '(point-min (point-min))
-                                                                '(point-max (point-max)))
-                       converted)
-                 (setq never-yields nil))))
+                   (progn (push (iter2--catcher-continuation-adding-form `(save-restriction
+                                                                            (narrow-to-region point-min point-max)
+                                                                            (prog1 ,(iter2--continuation-invocation-form iter2--value)
+                                                                              (unless (eq ,iter2--continuations ,iter2--done)
+                                                                                (setq point-min (point-min)
+                                                                                      point-max (point-max))
+                                                                                (push ,iter2--catcher ,iter2--continuations))))
+                                                                         (iter2--merge-continuation-form converted-body)
+                                                                         '(point-min (point-min))
+                                                                         '(point-max (point-max)))
+                                converted)
+                          (setq can-yield t))
+                 (push `(save-restriction ,@(macroexp-unprogn (car converted-body))) converted))))
 
             ;; Handle `save-match-data' macro: not a special form, but without special
             ;; handling doesn't produce intended results in generator functions.
             (`(save-match-data . ,body)
              (let ((converted-body (iter2--convert-progn body)))
                (if (cdr converted-body)
-                   (push `(save-match-data ,@(macroexp-unprogn (car converted-body))) converted)
-                 (push (iter2--catcher-continuation-adding-form `(save-match-data
-                                                                   (set-match-data match-data)
-                                                                   (prog1 ,(iter2--continuation-invocation-form iter2--value)
-                                                                     (unless (eq ,iter2--continuations ,iter2--done)
-                                                                       (match-data nil match-data)
-                                                                       (push ,iter2--catcher ,iter2--continuations))))
-                                                                (car converted-body)
-                                                                '(match-data (match-data)))
-                       converted)
-                 (setq never-yields nil))))
+                   (progn (push (iter2--catcher-continuation-adding-form `(save-match-data
+                                                                            (set-match-data match-data)
+                                                                            (prog1 ,(iter2--continuation-invocation-form iter2--value)
+                                                                              (unless (eq ,iter2--continuations ,iter2--done)
+                                                                                (match-data nil match-data)
+                                                                                (push ,iter2--catcher ,iter2--continuations))))
+                                                                         (iter2--merge-continuation-form converted-body)
+                                                                         '(match-data (match-data)))
+                                converted)
+                          (setq can-yield t))
+                 (push `(save-match-data ,@(macroexp-unprogn (car converted-body))) converted))))
 
             ;; Handle `with-no-warnings': while not a special form, it requires special handling.
             (`(with-no-warnings . ,body)
              (let ((converted-body (iter2--convert-progn body)))
-               (push `(with-no-warnings ,@(macroexp-unprogn (car converted-body))) converted)
-               (setq never-yields (cdr converted-body))))
+               (push `(with-no-warnings ,@(macroexp-unprogn (iter2--merge-continuation-form converted-body))) converted)
+               (setq can-yield (cdr converted-body))))
 
             ;; Handle all other non-atomic forms.
             (`(,name . ,arguments)
@@ -637,11 +660,11 @@ See `iter2-defun' for details."
                    (num-stack-arguments 0))
                (while arguments
                  (let ((argument (pop arguments)))
-                   (cond ((eq argument iter2--stack)
+                   (cond ((eq argument iter2--stack-state)
                           ;; This is our private internal flag that means "take a
                           ;; previously computed value from the stack".
                           (push `(pop ,iter2--stack) converted-arguments)
-                          (push iter2--stack         next-continuation-arguments)
+                          (push iter2--stack-state   next-continuation-arguments)
                           (setq num-stack-arguments (1+ num-stack-arguments)))
                          ((or (iter2--literalp argument) (and (memq name '(setq setq-default)) (= (% (length converted-arguments) 2) 0)))
                           (push argument converted-arguments)
@@ -649,37 +672,63 @@ See `iter2-defun' for details."
                          (t
                           (let ((converted-argument (iter2--convert-form argument)))
                             (if (cdr converted-argument)
-                                (progn (push (car converted-argument) converted-arguments)
-                                       (push iter2--stack             next-continuation-arguments)
-                                       (push (car converted-argument) arguments-to-save-on-stack))
-                              (when arguments-to-save-on-stack
-                                (push (iter2--stack-adding-form (nreverse arguments-to-save-on-stack)) converted))
-                              (iter2--add-converted-form converted converted-argument)
-                              (push (car (iter2--convert-progn (cons `(,name ,@(nreverse next-continuation-arguments) ,iter2--value ,@arguments) body)))
-                                    new-continuations)
-                              (setq arguments    nil
-                                    body         nil
-                                    never-yields nil)))))))
-               (when never-yields
+                                (progn (when arguments-to-save-on-stack
+                                         (push (iter2--stack-adding-form (nreverse arguments-to-save-on-stack)) converted))
+                                       (iter2--add-converted-form converted (car converted-argument))
+                                       (push `(,name ,@(nreverse next-continuation-arguments) ,(cdr converted-argument) ,@arguments) body)
+                                       (setq arguments nil
+                                             can-yield t))
+                              (push (car converted-argument) converted-arguments)
+                              (push iter2--stack-state       next-continuation-arguments)
+                              (push (car converted-argument) arguments-to-save-on-stack)))))))
+               (unless can-yield
                  (when (> num-stack-arguments 1)
                    (push (iter2--stack-head-reversing-form num-stack-arguments) converted))
                  (push (cons name (nreverse converted-arguments)) converted))))
 
             (_
              (push form converted)))
-          (when new-continuations
-            (setq never-yields nil))))
+          (when can-yield
+            (iter2--finish-chunk converted-chunks converted)
+            (setq can-yield nil))))
 
       (setq converted (nreverse converted))
-      (unless never-yields
-        (when body
-          (push (car (iter2--convert-progn body)) new-continuations))
-        (when continuation-if-yields
-          ;; Note that it is treated as a verbatim form, no conversion is done.
-          (push continuation-if-yields new-continuations)))
-      (when new-continuations
-        (push (iter2--continuation-adding-form new-continuations) converted))
-      (cons (macroexp-progn converted) never-yields))))
+      (if converted-chunks
+          (progn (setq converted-chunks (nreverse converted-chunks))
+                 (cons (if (cdr converted-chunks)
+                           `(progn ,(iter2--continuation-adding-form (reverse (cdr converted-chunks)))
+                                   ,@(macroexp-unprogn (car converted-chunks)))
+                         (car converted-chunks))
+                       (if converted (macroexp-progn converted) iter2--value)))
+        (cons (macroexp-progn converted) nil)))))
+
+(defun iter2--convert-form-tracer (function form)
+  (if (atom form)
+      (funcall function form)
+    (let ((inhibit-message        (not noninteractive))
+          (indentation            (make-string (* iter2--converter-depth 4) ? ))
+          (iter2--converter-depth (1+ iter2--converter-depth)))
+      (message "%s" (replace-regexp-in-string "^" indentation (format "FORM: %s" (iter2--pp-to-string form 60 6)) t t))
+      (let ((result (funcall function form)))
+        (message "%s" (replace-regexp-in-string "^" indentation (format "--->: %s\n+:    %s"
+                                                                        (iter2--pp-to-string (car result) 60 6)
+                                                                        (iter2--pp-to-string (cdr result) 60 6))
+                                                t t))
+        result))))
+
+(defun iter2--pp-to-string (object &optional max-single-line-length indent-by)
+  (let* ((print-quoted t)
+         (string       (prin1-to-string object)))
+    (when (and max-single-line-length (> (length string) max-single-line-length))
+      (setq string (string-trim-right (pp-to-string object))))
+    (when (and indent-by (> indent-by 0))
+      (setq string (replace-regexp-in-string "\n" (concat "\n" (make-string indent-by ? )) string t t)))
+    string))
+
+(defun iter2--debug-converter (enable)
+  (if enable
+      (advice-add #'iter2--convert-form :around #'iter2--convert-form-tracer)
+    (advice-remove #'iter2--convert-form #'iter2--convert-form-tracer)))
 
 (defun iter2--continuation-invocation-form (value &optional lambda)
   (if iter2-generate-tracing-functions
@@ -695,6 +744,13 @@ See `iter2-defun' for details."
          (iter2--do-trace "cleaning up using %S" function)
          (funcall function))
     `(funcall (pop ,iter2--cleanups))))
+
+(defun iter2--merge-continuation-form (converted &optional var)
+  (let ((converted-form    (car converted))
+        (continuation-form (cdr converted)))
+    (if (and continuation-form (not (eq continuation-form iter2--value)))
+        `(progn ,(iter2--continuation-adding-form (list continuation-form) var) ,@(macroexp-unprogn converted-form))
+      converted-form)))
 
 (defun iter2--continuation-adding-form (new-continuations &optional var)
   (let ((value (or var iter2--continuations)))
@@ -778,7 +834,7 @@ See `iter2-defun' for details."
   (let ((inhibit-message (not noninteractive))
         (print-level     (if (eq iter2-tracing-print-level  t) print-level  iter2-tracing-print-level))
         (print-length    (if (eq iter2-tracing-print-length t) print-length iter2-tracing-print-length)))
-    (apply #'message (concat "%siter2: " format-string) (cons (apply #'concat (make-list iter2--tracing-depth "    ")) arguments))))
+    (apply #'message (concat "%siter2: " format-string) (cons (make-string (* iter2--tracing-depth 4) ? ) arguments))))
 
 
 ;; Make sure that we are still compatible with `generator'.  I couldn't make it work like
