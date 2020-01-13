@@ -1,1 +1,6 @@
+/.eldev
+/Eldev-local
+
 *.elc
+
+/dist
