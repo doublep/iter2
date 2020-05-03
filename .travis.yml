@@ -15,4 +15,6 @@ env:
 
 script:
   - eldev -p -dtT test --expect 100
+  # Run it once again unpackaged, so that `undercover' can collect coverage statistics.
+  - eldev -dtT test --expect 100
   - eldev -dtT compile --warnings-as-errors

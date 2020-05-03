@@ -1,6 +1,8 @@
 ; -*- mode: emacs-lisp; lexical-binding: t; no-byte-compile: t -*-
 
-(eldev-require-version "0.2")
+(eldev-require-version "0.3")
+
+(eldev-use-plugin 'undercover)
 
 (defvar iter2-test-debug nil)
 
