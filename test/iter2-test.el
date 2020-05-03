@@ -740,6 +740,14 @@
     (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-calls-5 ()
+  ;; Enough arguments to trigger a call to `iter2--reverse-stack-head-n'.
+  (iter2--runtime-eval fn (iter2-lambda () (+ (iter-yield 1) (iter-yield 2) (iter-yield 3) (iter-yield 4) (iter-yield 5)))
+    (iter2--test fn :returned '( 1  2  3  4  5) :expected '(1 2 3 4 5) :end-value 15)
+    (iter2--test fn :returned '(+1 -2 +3 -4 +5) :expected '(1 2 3 4 5) :end-value  3)
+    (iter2--assert-num-lambdas fn 8)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-nested-yields-1 ()
   (iter2--runtime-eval fn (iter2-lambda (&optional x) (iter-yield (iter-yield x)))
     (iter2--test fn                             :expected '(nil nil))
