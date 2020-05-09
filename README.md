@@ -61,9 +61,10 @@ Now, from Emacs execute:
 ### Running regression tests
 
 This is only possible if you have the full source code, e.g. cloned it
-from Git as described above.  Just execute `./run-tests.sh` from the
-`iter2` directory.  All tests must pass, there can be no “expected
-failures”.
+from Git as described above.  Just execute `eldev test` from the
+`iter2` directory (you need to have
+[Eldev](https://github.com/doublep/eldev) installed).  All tests must
+pass, there can be no “expected failures”.
 
 
 ## Usage
