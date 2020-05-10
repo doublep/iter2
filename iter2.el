@@ -244,9 +244,6 @@ See `iter2-defun' for details."
         (let ((form (macroexpand (pop body) '((save-match-data . nil)))))
           ;; Simplify certain forms, rewrite certain others using
           ;; special forms that we handle below.
-          ;;
-          ;; TODO: Maybe handle `cond' differently?  Current handling
-          ;;       leads to very deep backtraces if not byte-compiled.
           (while (let ((rewritten-form
                         (pcase form
                           (`(and)                                        t)
@@ -255,8 +252,6 @@ See `iter2-defun' for details."
                           (`(cond)                                       nil)
                           (`(cond (,only-condition))                     only-condition)
                           (`(cond (,only-condition . ,body))             `(if ,only-condition ,(macroexp-progn body)))
-                          (`(cond (,condition) . ,other-clauses)         `(or ,condition (cond ,@other-clauses)))
-                          (`(cond (,condition . ,body) . ,other-clauses) `(if ,condition ,(macroexp-progn body) (cond ,@other-clauses)))
                           (`(,(or 'let 'let*) () . ,let-body)            (setq body (append (cdr let-body) body)) (car let-body))
                           (`(,(or 'progn 'inline))                       nil)
                           (`(,(or 'progn 'inline 'prog1) ,only-form)     only-form)
@@ -289,7 +284,7 @@ See `iter2-defun' for details."
             ;; Handle (and CONDITIONS...) and (or CONDITIONS...).
             (`(,(and (or 'and 'or) operator) . ,conditions)
              (let (plain-conditions)
-               (while (and conditions (not can-yield))
+               (while conditions
                  (let* ((converted-condition      (iter2--convert-form (pop conditions)))
                         (converted-condition-form (car converted-condition)))
                    (if (cdr converted-condition)
@@ -302,7 +297,8 @@ See `iter2-defun' for details."
                          (when plain-conditions
                            (setq converted-condition-form `(,operator ,@(nreverse plain-conditions) ,converted-condition-form)))
                          (iter2--add-converted-form converted converted-condition-form)
-                         (setq can-yield t))
+                         (setq can-yield  t
+                               conditions nil))
                      (push converted-condition-form plain-conditions))))
                (unless can-yield
                  (push `(,operator ,@(nreverse plain-conditions)) converted))))
@@ -323,6 +319,33 @@ See `iter2-defun' for details."
                           ,@(when else (macroexp-unprogn (iter2--merge-continuation-form converted-else))))
                        converted))
                (setq can-yield (or (cdr converted-then) (cdr converted-else)))))
+
+            ;; Handle (cond [CLAUSES...]).
+            (`(cond . ,clauses)
+             (let (converted-clauses
+                   conditions-can-yield)
+               (while clauses
+                 (let* ((clause                   (pop clauses))
+                        (converted-condition      (iter2--convert-form (car clause)))
+                        (converted-condition-form (car converted-condition))
+                        (clause-body              (cdr clause)))
+                   (if (cdr converted-condition)
+                       (let ((converted-continuation (iter2--convert-form `(cond (,(cdr converted-condition) ,@clause-body) ,@clauses))))
+                         (setq converted-condition-form `(progn ,(iter2--continuation-adding-form (list (iter2--merge-continuation-form converted-continuation)))
+                                                                ,@(macroexp-unprogn converted-condition-form)))
+                         (when converted-clauses
+                           (setq converted-condition-form `(cond ,@(nreverse converted-clauses) (t ,@(macroexp-unprogn converted-condition-form)))))
+                         (iter2--add-converted-form converted converted-condition-form)
+                         (setq conditions-can-yield t
+                               clauses              nil))
+                     (let ((converted-body (when clause-body (iter2--convert-progn clause-body))))
+                       (push `(,(car converted-condition) ,@(when clause-body (macroexp-unprogn (iter2--merge-continuation-form converted-body))))
+                             converted-clauses)
+                       (when (cdr converted-body)
+                         (setq can-yield t))))))
+               (if conditions-can-yield
+                   (setf can-yield t)
+                 (push `(cond ,@(nreverse converted-clauses)) converted))))
 
             ;; Handle (while CONDITION [WHILE-BODY...]).
             (`(while ,condition . ,while-body)
