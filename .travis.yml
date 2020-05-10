@@ -12,6 +12,11 @@ env:
   - EVM_EMACS=emacs-26.1-travis
   - EVM_EMACS=emacs-26.2-travis
   - EVM_EMACS=emacs-26.3-travis
+  - EVM_EMACS=emacs-git-snapshot-travis
+
+jobs:
+  allow_failures:
+    - env: EVM_EMACS=emacs-git-snapshot-travis
 
 script:
   - eldev -p -dtT test --expect 100
