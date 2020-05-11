@@ -85,6 +85,13 @@ If set to t, value of `print-length' at the time of tracing is
 preserved.  Otherwise, it is overwritten with the value of this
 variable.")
 
+(defvar iter2-tracing-function #'iter2-log-message
+  "Function called to trace iterator execution.
+The function must accept the same arguments as built-in
+`message', but is not restricted in what it does with the
+messages.  If the value is nil, tracing is disabled even for
+iterator functions that are supposed to trace.")
+
 
 (defvar iter2--tracing-depth 0)
 
@@ -579,9 +586,9 @@ See `iter2-defun' for details."
              (let* ((converted-value      (iter2--convert-form (car rest)))
                     (converted-value-form (car converted-value)))
                (when iter2-generate-tracing-functions
-                 (setq converted-value-form `((let ((,iter2--value ,converted-value-form))
-                                                (iter2--do-trace "yielding %S" ,iter2--value)
-                                                ,iter2--value))))
+                 (setq converted-value-form `(let ((,iter2--value ,converted-value-form))
+                                               (iter2--do-trace "yielding %S" ,iter2--value)
+                                               ,iter2--value)))
                (when (cdr converted-value)
                  (iter2--add-converted-form converted converted-value-form)
                  (iter2--finish-chunk converted-chunks converted)
@@ -726,17 +733,16 @@ See `iter2-defun' for details."
         (cons (macroexp-progn converted) nil)))))
 
 (defun iter2--convert-form-tracer (function form)
-  (if (atom form)
-      (funcall function form)
-    (let ((inhibit-message        (not noninteractive))
-          (indentation            (make-string (* iter2--converter-depth 4) ? ))
-          (iter2--converter-depth (1+ iter2--converter-depth)))
-      (message "%s" (replace-regexp-in-string "^" indentation (format "FORM: %s" (iter2--pp-to-string form 60 6)) t t))
-      (let ((result (funcall function form)))
-        (message "%s" (replace-regexp-in-string "^" indentation (format "--->: %s\n+:    %s"
-                                                                        (iter2--pp-to-string (car result) 60 6)
-                                                                        (iter2--pp-to-string (cdr result) 60 6))
-                                                t t))
+  (let ((result (funcall function form)))
+    (if (or (atom form) (null iter2-tracing-function))
+        result
+      (let ((indentation            (make-string (* iter2--converter-depth 4) ? ))
+            (iter2--converter-depth (1+ iter2--converter-depth)))
+        (funcall iter2-tracing-function "%s" (replace-regexp-in-string "^" indentation (format "FORM: %s" (iter2--pp-to-string form 60 6)) t t))
+        (funcall iter2-tracing-function "%s" (replace-regexp-in-string "^" indentation (format "--->: %s\n+:    %s"
+                                                                                               (iter2--pp-to-string (car result) 60 6)
+                                                                                               (iter2--pp-to-string (cdr result) 60 6))
+                                                                       t t))
         result))))
 
 (defun iter2--pp-to-string (object &optional max-single-line-length indent-by)
@@ -854,10 +860,10 @@ See `iter2-defun' for details."
     (nconc (nreverse stack) stack-tail)))
 
 (defun iter2--do-trace (format-string &rest arguments)
-  (let ((inhibit-message (not noninteractive))
-        (print-level     (if (eq iter2-tracing-print-level  t) print-level  iter2-tracing-print-level))
-        (print-length    (if (eq iter2-tracing-print-length t) print-length iter2-tracing-print-length)))
-    (apply #'message (concat "%siter2: " format-string) (cons (make-string (* iter2--tracing-depth 4) ? ) arguments))))
+  (when iter2-tracing-function
+    (let ((print-level  (if (eq iter2-tracing-print-level  t) print-level  iter2-tracing-print-level))
+          (print-length (if (eq iter2-tracing-print-length t) print-length iter2-tracing-print-length)))
+      (apply iter2-tracing-function (concat "%siter2: " format-string) (cons (make-string (* iter2--tracing-depth 4) ? ) arguments)))))
 
 
 ;; Make sure that we are still compatible with `generator'.  I couldn't make it work like
@@ -867,6 +873,13 @@ See `iter2-defun' for details."
                    (and (equal (iter-next it) 1) (condition-case error (progn (iter-next it 2) nil) (iter-end-of-sequence (equal (cdr error) 2)))))
            (warn "Compatibility of `iter2' with `generator' package appears broken; please report this to maintainer (Emacs version: %s)" (emacs-version)))
         t))
+
+
+(defun iter2-log-message (format-string &rest arguments)
+  "Like built-in `message', but only write to `*Messages*' buffer."
+  (let ((inhibit-message (or inhibit-message (not noninteractive))))
+    (apply #'message format-string arguments)))
+
 
 ;; Work around missing Edebug specification for `iter-do' macro.
 (when (and (fboundp 'iter-do) (null (get 'iter-do 'edebug-form-spec)))

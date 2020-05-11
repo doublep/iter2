@@ -100,6 +100,16 @@
          ,@(unless dont-test-for-warnings
              `((iter2--test-byte-compiles-with-no-warnings fn)))))))
 
+(defmacro iter2--with-test-tracing (&rest body)
+  (declare (indent 0))
+  `(let* (traced-messages
+          (iter2-tracing-function (lambda (format-string &rest arguments)
+                                    ;; Ignore exact invoked closures.
+                                    (push (replace-regexp-in-string "iter2: invoking \\((.+)\\) with value " "..." (apply #'format format-string arguments) t t 1)
+                                          traced-messages))))
+     ,@body))
+
+
 (defmacro iter2--let-wrapper (bindings &rest body)
   `(let (,@bindings) ,@body))
 
@@ -839,3 +849,27 @@
     (iter2--assert-num-lambdas fn 5)
     (makunbound variable)
     (iter2--test-byte-compiles-with-no-warnings fn)))
+
+
+(ert-deftest iter2-tracing-1 ()
+  (iter2--with-test-tracing
+    (iter2--runtime-eval fn (iter2-tracing-lambda () (iter-yield 1) (iter-yield 2))
+      (iter2--test fn :expected '(1 2) :returned '(3 4) :end-value 4)
+      (should (equal (reverse traced-messages)
+                     '("iter2: invoking ... with value nil" "    iter2: yielding 1"
+                       "iter2: invoking ... with value 3"   "    iter2: yielding 2"))))))
+
+(ert-deftest iter2-tracing-2 ()
+  (iter2--with-test-tracing
+    (iter2--runtime-eval fn (iter2-lambda () (iter-yield 1) (iter-yield 2))
+      (iter2--test fn :expected '(1 2) :returned '(3 4) :end-value 4)
+      (should (null traced-messages)))))
+
+(ert-deftest iter2-tracing-3 ()
+  (iter2--with-test-tracing
+    (let ((iter2-generate-tracing-functions t))
+      (iter2--runtime-eval fn (iter2-lambda () (iter-yield 1) (iter-yield 2))
+        (iter2--test fn :expected '(1 2) :returned '(3 4) :end-value 4)
+        (should (equal (reverse traced-messages)
+                       '("iter2: invoking ... with value nil" "    iter2: yielding 1"
+                         "iter2: invoking ... with value 3"   "    iter2: yielding 2")))))))
