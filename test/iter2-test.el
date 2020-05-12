@@ -127,6 +127,12 @@
       (advice-remove 'byte-compile-warn advice))))
 
 
+(defun iter2--test-intern-symbols (value)
+  (cond ((consp value)   (cons (iter2--test-intern-symbols (car value)) (iter2--test-intern-symbols (cdr value))))
+        ((symbolp value) (intern (symbol-name value)))
+        (t               value)))
+
+
 (defvar iter2--test-global-var-1 nil)
 (defvar iter2--test-global-var-2 nil)
 (defvar iter2--test-global-var-3 nil)
@@ -250,6 +256,22 @@
       42
     (arith-error condvar)))
 
+(iter2--test-no-yields iter2-no-yields-save-excursion
+  (save-excursion
+    10))
+
+(iter2--test-no-yields iter2-no-yields-save-current-buffer
+  (save-current-buffer
+    10))
+
+(iter2--test-no-yields iter2-no-yields-save-restriction
+  (save-restriction
+    10))
+
+(iter2--test-no-yields iter2-no-yields-save-match-data
+  (save-match-data
+    10))
+
 
 (ert-deftest iter2-progn-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (iter-yield 1) (iter-yield 2))
@@ -275,6 +297,28 @@
     (iter2--test fn                    :expected '(1 2 3))
     (iter2--test fn :returned '(3 4 5) :expected '(1 2 3) :end-value 3)
     (iter2--assert-num-lambdas fn 6)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-prog1-4 ()
+  ;; `prog1' here is actually meaningless.
+  (iter2--runtime-eval fn (iter2-lambda () (prog1 (iter-yield 1) (iter-yield 2)) (iter-yield 3))
+    (iter2--test fn                    :expected '(1 2 3))
+    (iter2--test fn :returned '(3 4 5) :expected '(1 2 3) :end-value 5)
+    (iter2--assert-num-lambdas fn 5)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-prog1-5 ()
+  (iter2--runtime-eval fn (iter2-lambda (x) (prog1 (iter-yield 1) (funcall x)))
+    (let* (called-back
+           (callback (lambda () (setq called-back t)))
+           (it       (funcall fn callback)))
+      (should (not called-back))
+      (should (equal (iter-next it) 1))
+      (should (not called-back))
+      (should (equal (condition-case error (cons nil (iter-next it 2)) (iter-end-of-sequence error))
+                     '(iter-end-of-sequence . 2)))
+      (should called-back))
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-and-1 ()
@@ -309,6 +353,13 @@
     (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-and-5 ()
+  (iter2--runtime-eval fn (iter2-lambda () (and (iter-yield 1)))
+    (iter2--test fn                :expected '(1))
+    (iter2--test fn :returned '(t) :expected '(1) :end-value t)
+    (iter2--assert-num-lambdas fn 3)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-or-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (or 3 (iter-yield 1)))
     (iter2--test fn :expected '() :end-value 3)
@@ -338,6 +389,13 @@
     (iter2--test fn :returned '(nil nil 5)     :expected '(1 2 3 5))
     (iter2--test fn :returned '(nil nil nil 6) :expected '(1 2 3 nil) :end-value 6)
     (iter2--assert-num-lambdas fn 6)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-or-5 ()
+  (iter2--runtime-eval fn (iter2-lambda () (or (iter-yield 1)))
+    (iter2--test fn                :expected '(1))
+    (iter2--test fn :returned '(t) :expected '(1) :end-value t)
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-if-1 ()
@@ -509,6 +567,9 @@
     (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-let-error-1 ()
+  (should-error (eval '(iter2-lambda () (let ((x 1 2)))) t)))
+
 (ert-deftest iter2-let*-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (let* ((x 1)) (iter-yield x)))
     (iter2--test fn :expected '(1))
@@ -534,6 +595,12 @@
   ;; Byte-compilation warnings about unused `a' is expected here, so
   ;; do not test for no warnings.
   (iter2--runtime-eval fn (iter2-lambda (a b c) (let* ((a (iter-yield c)) (b (iter-yield b)) (c (iter-yield a))) (list a b c)))
+    (iter2--test fn :args '(1 2 3) :returned '(4 5 6) :expected '(3 2 4) :end-value '(4 5 6))
+    (iter2--assert-num-lambdas fn 6)))
+
+(ert-deftest iter2-let*-5 ()
+  ;; Like above, with extra unused bindings.
+  (iter2--runtime-eval fn (iter2-lambda (a b c) (let* ((a (iter-yield c)) (x) (y) (b (iter-yield b)) z (c (iter-yield a))) (list a b c)))
     (iter2--test fn :args '(1 2 3) :returned '(4 5 6) :expected '(3 2 4) :end-value '(4 5 6))
     (iter2--assert-num-lambdas fn 6)))
 
@@ -629,17 +696,24 @@
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-unwind-protect-3 ()
-  (let ((n 0))
-    (iter2--runtime-eval fn (iter2-lambda (x y) (unwind-protect (progn (iter-yield (funcall x)) 0) (funcall y)))
-      (let (done)
-        (iter2--test fn :args (list (lambda () 1) (lambda () (setq done t))) :expected '(1) :end-value 0)
-        (should done))
-      (let (done)
-        (catch 'eek
-          (iter2--test fn :args (list (lambda () (throw 'eek nil)) (lambda () (setq done t)))))
-        (should done))
-      (iter2--assert-num-lambdas fn 8)
-      (iter2--test-byte-compiles-with-no-warnings fn))))
+  (iter2--runtime-eval fn (iter2-lambda (x y) (unwind-protect (progn (iter-yield (funcall x)) 0) (funcall y)))
+    (let (done)
+      (iter2--test fn :args (list (lambda () 1) (lambda () (setq done t))) :expected '(1) :end-value 0)
+      (should done))
+    (let (done)
+      (catch 'eek
+        (iter2--test fn :args (list (lambda () (throw 'eek nil)) (lambda () (setq done t)))))
+      (should done))
+    (iter2--assert-num-lambdas fn 8)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-unwind-protect-4 ()
+  ;; `unwind-protect' here does nothing and can be ignored.
+  (iter2--runtime-eval fn (iter2-lambda (a) (or (catch 'x (unwind-protect (throw 'x (iter-yield 1)))) a))
+    (iter2--test fn :args '(1)                :expected '(1) :end-value 1)
+    (iter2--test fn :args '(1) :returned '(0) :expected '(1) :end-value 0)
+    (iter2--assert-num-lambdas fn 7)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-unwind-protect-close-1 ()
   (iter2--runtime-eval fn (iter2-lambda (done) (unwind-protect (iter-yield 1) (funcall done)))
@@ -670,6 +744,65 @@
     (iter2--assert-num-lambdas fn 7)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-unwind-protect-close-2 ()
+  ;; Same with nested `unwind-protect' forms.
+  (iter2--runtime-eval fn (iter2-lambda (done)
+                            (unwind-protect (progn (iter-yield 0)
+                                                   (unwind-protect (iter-yield 1) (funcall done 1))
+                                                   (iter-yield 2))
+                              (funcall done 2)))
+    (let* (done
+           (it (funcall fn (lambda (n) (push n done)))))
+      ;; Closing before `unwind-protect' forms are even reached.
+      (should (equal done nil))
+      (iter-close it)
+      (should (equal done nil)))
+    (let* (done
+           (it (funcall fn (lambda (n) (push n done)))))
+      ;; Letting everything run normally.
+      (should (equal done nil))
+      (should (equal (iter-next it) 0))
+      (should (equal done nil))
+      (should (equal (iter-next it) 1))
+      (should (equal done nil))
+      (should (equal (iter-next it) 2))
+      (should (equal done '(1)))
+      (should (equal (condition-case error (cons nil (iter-next it 3)) (iter-end-of-sequence error))
+                     '(iter-end-of-sequence . 3)))
+      (should (equal done '(2 1))))
+    (let* (done
+           (it (funcall fn (lambda (n) (push n done)))))
+      ;; Stopping early, before second `unwind-protect' is reached...
+      (should (equal done nil))
+      (should (equal (iter-next it) 0))
+      (should (equal done nil))
+      (iter-close it)
+      (should (equal done '(2))))
+    (let* (done
+           (it (funcall fn (lambda (n) (push n done)))))
+      ;; Stopping early, when second `unwind-protect' is already reached...
+      (should (equal done nil))
+      (should (equal (iter-next it) 0))
+      (should (equal done nil))
+      (should (equal (iter-next it) 1))
+      (should (equal done nil))
+      (iter-close it)
+      (should (equal done '(2 1))))
+    (let* (done
+           (it (funcall fn (lambda (n) (push n done)))))
+      ;; Like above, just a bit later...
+      (should (equal done nil))
+      (should (equal (iter-next it) 0))
+      (should (equal done nil))
+      (should (equal (iter-next it) 1))
+      (should (equal done nil))
+      (should (equal (iter-next it) 2))
+      (should (equal done '(1)))
+      (iter-close it)
+      (should (equal done '(2 1))))
+    (iter2--assert-num-lambdas fn 13)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-condition-case-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (condition-case _ (error "oh") (foo (iter-yield 1) (iter-yield 2)) (error (iter-yield 3) (iter-yield 4))))
     (iter2--test fn :expected '(3 4))
@@ -684,6 +817,17 @@
     (iter2--test fn :returned '(t arith-error t 7 8) :expected '(1 2 3 4 5) :end-value 8)
     (iter2--assert-num-lambdas fn 9)
     (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-condition-case-3 ()
+  ;; Test `condition-case' that has no handlers.
+  (iter2--runtime-eval fn (iter2-lambda (x) (iter-yield (condition-case nil x)))
+    (iter2--test fn :args '(nil) :returned '(nil) :expected '(nil))
+    (iter2--test fn :args '(1)   :returned '(2)   :expected '(1) :end-value 2)
+    (iter2--assert-num-lambdas fn 3)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-condition-case-error-1 ()
+  (should-error (eval '(iter2-lambda () (condition-case nil (foo) error)) t)))
 
 (ert-deftest iter2-catch-1 ()
   (iter2--runtime-eval fn (iter2-lambda (a b) (catch 'x (throw 'x (iter-yield a)) b))
@@ -823,6 +967,15 @@
       (iter2--test-byte-compiles-with-no-warnings fn1)
       (iter2--test-byte-compiles-with-no-warnings fn2))))
 
+(ert-deftest iter2-illegal-yield-1 ()
+  (should-error (eval '(iter2-lambda () (iter-yield)) t)))
+
+(ert-deftest iter2-illegal-yield-2 ()
+  (should-error (eval '(iter2-lambda () (iter-yield 1 2 3)) t)))
+
+(ert-deftest iter2-illegal-yield-3 ()
+  (should-error (eval '(iter2-lambda () (unwind-protect (foo) (iter-yield 1))) t)))
+
 (ert-deftest iter2-metamacro-1 ()
   ;; Test with a macro that expands to (another) macro.
   (iter2--runtime-eval fn (iter2-lambda () (iter2--let-wrapper-2 ((x 1)) (iter-yield x)))
@@ -851,6 +1004,20 @@
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 
+(ert-deftest iter2-defun-1 ()
+  (iter2--runtime-eval fn (iter2-defun iter2--test-defun-1 () (iter-yield 1) (iter-yield 2))
+    (iter2--test fn :expected '(1 2) :returned '(3 4) :end-value 4)
+    (should (equal (iter2--test-intern-symbols (symbol-function fn))
+                   (iter2--test-intern-symbols (iter2--runtime-eval fn (iter2-lambda () (iter-yield 1) (iter-yield 2)) fn))))))
+
+(ert-deftest iter2-defun-2 ()
+  (iter2--with-test-tracing
+    (iter2--runtime-eval fn (iter2-tracing-defun iter2--test-defun-1 () (iter-yield 1) (iter-yield 2))
+      (iter2--test fn :expected '(1 2) :returned '(3 4) :end-value 4)
+      (should (equal (iter2--test-intern-symbols (symbol-function fn))
+                     (iter2--test-intern-symbols (iter2--runtime-eval fn (iter2-tracing-lambda () (iter-yield 1) (iter-yield 2)) fn)))))))
+
+
 (ert-deftest iter2-tracing-1 ()
   (iter2--with-test-tracing
     (iter2--runtime-eval fn (iter2-tracing-lambda () (iter-yield 1) (iter-yield 2))
@@ -873,3 +1040,19 @@
         (should (equal (reverse traced-messages)
                        '("iter2: invoking ... with value nil" "    iter2: yielding 1"
                          "iter2: invoking ... with value 3"   "    iter2: yielding 2")))))))
+
+
+(ert-deftest iter2-nested-lambda-detection-1 ()
+  ;; It seems that passing an alist to `eval' is not enough, because
+  ;; apparently macros are expanded before that takes effect.
+  (let ((iter2-detect-nested-lambda-yields t))
+    (should-error (eval '(iter2-lambda (x) (mapc (lambda (v) (iter-yield v)) x)) t)))
+  ;; With detection off it should be converted just fine, but fail at
+  ;; runtime.
+  (let* ((iter2-detect-nested-lambda-yields nil)
+         (fn (eval '(iter2-lambda (x) (mapc (lambda (v) (iter-yield v)) x)) t)))
+    (should-error (iter-next (funcall fn '(1 2 3))))))
+
+
+(ert-deftest iter2-requires-lexical-binding-1 ()
+  (should-error (eval '(iter2-lambda () (iter-yield 1) (iter-yield 2)) nil)))

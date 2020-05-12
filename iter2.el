@@ -198,7 +198,7 @@ See `iter2-defun' for details."
        ;; doesn't involve user code at all), but instead when it receives control after
        ;; `iter-next' or `iter-yield' call.  This also solves the issue with form
        ;; conversion: normally `iter2--convert-form' doesn't recurse into nested lambdas.
-       (setf body           real-body
+       (setq body           real-body
              apply-debugger (lambda (&rest forms) `((edebug-enter ,edebug-name ,edebug-args (function (lambda () ,@forms))))))))
     ;; Need to convert the body now, since this affects at least `iter2--cleanups-used'.
     (let ((converted (iter2--convert-progn body)))
@@ -351,7 +351,7 @@ See `iter2-defun' for details."
                        (when (cdr converted-body)
                          (setq can-yield t))))))
                (if conditions-can-yield
-                   (setf can-yield t)
+                   (setq can-yield t)
                  (push `(cond ,@(nreverse converted-clauses)) converted))))
 
             ;; Handle (while CONDITION [WHILE-BODY...]).
