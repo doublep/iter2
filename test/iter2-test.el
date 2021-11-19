@@ -23,11 +23,21 @@
 
 ;; Evaluating iterator lambdas at runtime simplifies testing changes
 ;; immediately.
-(cl-defmacro iter2--runtime-eval (name value &rest body)
+(defmacro iter2--runtime-eval (name value &rest body)
   (declare (debug (symbolp form body))
            (indent 2))
   `(let* ((,name (eval ,(macroexp-quote value) t)))
      ,@body))
+
+(defmacro iter2--pretty-print-if-failing (function &rest body)
+  (declare (debug (sexp body))
+           (indent 1))
+  (let ((error (make-symbol "error")))
+    `(condition-case ,error
+         (progn ,@body)
+       (error (princ "Pretty-printed failing function:\n")
+              (pp ,function)
+              (signal (car ,error) (cdr ,error))))))
 
 (cl-defmacro iter2--test (function &key args returned returned-expression expected end-value max-length body)
   (cl-assert (not (and returned returned-expression)))
@@ -42,24 +52,21 @@
             (length 0)
             terminated-normally
             end-value)
-       (condition-case error
-           (progn (condition-case error
-                      (catch 'too-long
-                        (while t
-                          (setq value (iter-next it ,(if returned `(pop to-return) returned-expression)))
-                          (when (> (setq length (1+ length)) ,(or max-length (+ (length expected) 5)))
-                            (throw 'too-long nil))
-                          (push value result)
-                          ,@body))
-                    (iter-end-of-sequence (setq terminated-normally t
-                                                end-value           (cdr error))))
-                  (setq result (nreverse result))
-                  (should (equal (progn ,(format-message "%s yielded values" description) result) ,expected))
-                  (when terminated-normally
-                    (should (equal (progn ,(format-message "%s end value" description) end-value) ,end-value))))
-         (error (princ "Pretty-printed failing function:\n")
-                (pp fn)
-                (signal (car error) (cdr error))))
+       (iter2--pretty-print-if-failing fn
+         (condition-case error
+             (catch 'too-long
+               (while t
+                 (setq value (iter-next it ,(if returned `(pop to-return) returned-expression)))
+                 (when (> (setq length (1+ length)) ,(or max-length (+ (length expected) 5)))
+                   (throw 'too-long nil))
+                 (push value result)
+                 ,@body))
+           (iter-end-of-sequence (setq terminated-normally t
+                                       end-value           (cdr error))))
+         (setq result (nreverse result))
+         (should (equal (progn ,(format-message "%s yielded values" description) result) ,expected))
+         (when terminated-normally
+           (should (equal (progn ,(format-message "%s end value" description) end-value) ,end-value))))
        nil)))
 
 ;; To make sure that converted functions don't become too inefficient
@@ -69,7 +76,9 @@
 ;; it should be manually verified and either the code or the test
 ;; (expected number of lambdas) fixed.
 (defmacro iter2--assert-num-lambdas (form expected)
-  `(should (= (iter2--count-lambas ,form) ,expected)))
+  `(let ((fn ,form))
+     (iter2--pretty-print-if-failing fn
+       (should (= (iter2--count-lambas fn) ,expected)))))
 
 (defun iter2--count-lambas (form)
   (pcase (macroexpand-1 form)
