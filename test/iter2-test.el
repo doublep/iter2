@@ -163,11 +163,20 @@
 (iter2--test-no-yields iter2-no-yields-or-empty (or))
 
 (iter2--test-no-yields iter2-no-yields-let* (let* ((i 10)) i))
-(iter2--test-no-yields iter2-no-yields-let*-shadow-empty (let* ((i 10)) (ignore i) (let (i) i)))
+
 (iter2--test-no-yields iter2-no-yields-let (let ((i 10)) i))
-(iter2--test-no-yields iter2-no-yields-let-shadow-empty (let ((i 10)) (ignore i) (let (i) i)))
 (iter2--test-no-yields iter2-no-yields-let-novars (let nil 42))
 (iter2--test-no-yields iter2-no-yields-let*-novars (let* nil 42))
+
+(iter2--test-no-yields iter2-no-yields-let*-shadow-empty
+  ;; Emacs 28 (?) started issuing a warning about uninitialized variable here, I'd say
+  ;; rightly so.  So, don't byte-compilate anymore.
+  :dont-test-for-warnings
+  (let* ((i 10)) (ignore i) (let (i) i)))
+
+(iter2--test-no-yields iter2-no-yields-let-shadow-empty
+  :dont-test-for-warnings
+  (let ((i 10)) (ignore i) (let (i) i)))
 
 (iter2--test-no-yields iter2-no-yields-let-parallel
   (let ((a 5) (b 6)) (let ((a b) (b a)) (list a b))))
