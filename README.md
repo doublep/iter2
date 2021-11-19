@@ -1,7 +1,9 @@
 [![License: GPL 3](https://img.shields.io/badge/license-GPL_3-green.svg)](http://www.gnu.org/licenses/gpl-3.0.txt)
 [![Build Status](https://github.com/doublep/iter2/workflows/CI/badge.svg)](https://github.com/doublep/iter2/actions?query=workflow%3ACI)
 [![MELPA Stable](http://stable.melpa.org/packages/iter2-badge.svg)](http://stable.melpa.org/#/logview)
-[![Coverage Status](https://coveralls.io/repos/github/doublep/iter2/badge.svg)](https://coveralls.io/github/doublep/iter2)
+<!-- Currently out of date, doesn't get updated from GitHub workflows.
+     [![Coverage Status](https://coveralls.io/repos/github/doublep/iter2/badge.svg)](https://coveralls.io/github/doublep/iter2)
+  -->
 
 
 # iter2
