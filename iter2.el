@@ -231,6 +231,10 @@ See `iter2-defun' for details."
                                       ,iter2--stack         nil))))
                  (t (error "Unknown iterator operation %S" operation))))))))
 
+(defsubst iter2--do-macroexpand (form)
+  ;; Prevent `macroexpand' from expanding macros for which we have special handling.
+  (macroexpand form '((save-match-data . nil))))
+
 ;; Returns (CONVERTED-FORM . CONTINUATION-FORM)
 ;;
 ;; if CONVERTED-FORM never yields, CONTINUATION-FORM is nil.  CONTINUATION-FORM itself
@@ -247,30 +251,30 @@ See `iter2-defun' for details."
           converted
           converted-chunks)
       (while body
-        ;; Prevent `macroexpand' from expanding macros for which we have special handling.
-        (let ((form (macroexpand (pop body) '((save-match-data . nil)))))
+        (let ((form (iter2--do-macroexpand (pop body))))
           ;; Simplify certain forms, rewrite certain others using
           ;; special forms that we handle below.
           (while (let ((rewritten-form
                         (pcase form
                           (`(and)                                        t)
                           (`(or)                                         nil)
-                          (`(,(or 'and 'or) ,only-condition)             only-condition)
+                          (`(,(or 'and 'or) ,only-condition)             (iter2--do-macroexpand only-condition))
                           (`(cond)                                       nil)
-                          (`(cond (,only-condition))                     only-condition)
+                          (`(cond (,only-condition))                     (iter2--do-macroexpand only-condition))
                           (`(cond (,only-condition . ,body))             `(if ,only-condition ,(macroexp-progn body)))
-                          (`(,(or 'let 'let*) () . ,let-body)            (setq body (append (cdr let-body) body)) (car let-body))
+                          (`(,(or 'let 'let*) () . ,let-body)            (setq body (append (cdr let-body) body)) (iter2--do-macroexpand (car let-body)))
                           (`(,(or 'progn 'inline))                       nil)
-                          (`(,(or 'progn 'inline 'prog1) ,only-form)     only-form)
-                          (`(,(or 'progn 'inline) ,first . ,others)      (setq body (append others body)) first)
+                          (`(,(or 'progn 'inline 'prog1) ,only-form)     (iter2--do-macroexpand only-form))
+                          (`(,(or 'progn 'inline) ,first . ,others)      (setq body (append others body)) (iter2--do-macroexpand first))
                           (`(prog1 ,value . ,rest)                       (if body
-                                                                             ;; This value is not going to be used anyway.
-                                                                             (progn (setq body (append rest body)) value)
+                                                                             ;; This value is not going to be used anyway,
+                                                                             ;; so just inline this into `body'.
+                                                                             (progn (setq body (append rest body)) (iter2--do-macroexpand value))
                                                                            ;; Do nothing.
                                                                            form))
                           (`(prog2 ,first ,second . ,others)             `(prog1 (progn ,first ,second) ,@others))
-                          (`(unwind-protect ,body-form)                  body-form)
-                          (`(condition-case ,_ ,body-form)               body-form)
+                          (`(unwind-protect ,body-form)                  (iter2--do-macroexpand body-form))
+                          (`(condition-case ,_ ,body-form)               (iter2--do-macroexpand body-form))
                           (_                                             form))))
                    (if (eq form rewritten-form)
                        nil

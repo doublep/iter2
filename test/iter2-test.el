@@ -279,6 +279,18 @@
     (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-progn-2 ()
+  (iter2--runtime-eval fn (iter2-lambda (x) (progn (progn (dolist (e x) (iter-yield e)))))
+    (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
+    (iter2--assert-num-lambdas fn 5)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-progn-3 ()
+  (iter2--runtime-eval fn (iter2-lambda (x) (progn (progn (dolist (e x) (iter-yield e)) 'done)))
+    (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value 'done)
+    (iter2--assert-num-lambdas fn 6)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-prog1-1 ()
   (iter2--runtime-eval fn (iter2-lambda (x) (prog1 x (iter-yield 1)))
     (iter2--test fn :args '(0) :expected '(1) :end-value 0)
@@ -321,6 +333,12 @@
     (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-prog1-6 ()
+  (iter2--runtime-eval fn (iter2-lambda (x) (prog1 (dolist (e x) (iter-yield e))))
+    (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
+    (iter2--assert-num-lambdas fn 5)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-and-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (and 3 (iter-yield 1)))
     (iter2--test fn                :expected '(1))
@@ -360,6 +378,12 @@
     (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-and-6 ()
+  (iter2--runtime-eval fn (iter2-lambda (x) (and (dolist (e x) (iter-yield e))))
+    (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
+    (iter2--assert-num-lambdas fn 5)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-or-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (or 3 (iter-yield 1)))
     (iter2--test fn :expected '() :end-value 3)
@@ -396,6 +420,12 @@
     (iter2--test fn                :expected '(1))
     (iter2--test fn :returned '(t) :expected '(1) :end-value t)
     (iter2--assert-num-lambdas fn 3)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-or-6 ()
+  (iter2--runtime-eval fn (iter2-lambda (x) (or (dolist (e x) (iter-yield e))))
+    (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-if-1 ()
@@ -489,6 +519,12 @@
     (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-cond-6 ()
+  (iter2--runtime-eval fn (iter2-lambda (x) (cond ((dolist (e x) (iter-yield e)))))
+    (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
+    (iter2--assert-num-lambdas fn 5)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-while-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (while t (iter-yield t)))
     (iter2--test fn :expected '(t t t t t) :max-length 5)
@@ -565,6 +601,12 @@
   (iter2--runtime-eval fn (iter2-lambda (a b c) (let ((a (iter-yield c)) (b (iter-yield b)) (c (iter-yield a))) (list a b c)))
     (iter2--test fn :args '(1 2 3) :returned '(4 5 6) :expected '(3 2 1) :end-value '(4 5 6))
     (iter2--assert-num-lambdas fn 6)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-let-5 ()
+  (iter2--runtime-eval fn (iter2-lambda (x) (let () (dolist (e x) (iter-yield e))))
+    (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-let-error-1 ()
@@ -713,6 +755,12 @@
     (iter2--test fn :args '(1)                :expected '(1) :end-value 1)
     (iter2--test fn :args '(1) :returned '(0) :expected '(1) :end-value 0)
     (iter2--assert-num-lambdas fn 7)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
+(ert-deftest iter2-unwind-protect-5 ()
+  (iter2--runtime-eval fn (iter2-lambda (x) (unwind-protect (dolist (e x) (iter-yield e))))
+    (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-unwind-protect-close-1 ()
