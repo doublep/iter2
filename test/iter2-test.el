@@ -1122,3 +1122,34 @@
 
 (ert-deftest iter2-requires-lexical-binding-1 ()
   (should-error (eval '(iter2-lambda () (iter-yield 1) (iter-yield 2)) nil)))
+
+
+(declare-function iter2--test-using-special-variable nil)
+
+(ert-deftest iter2-byte-compiled-special-variables-1 ()
+  (let ((k     0)
+        (file (make-temp-file "iter2-" nil ".el"))
+        special-variable-name)
+    (while (fboundp (setf special-variable-name (intern (format "iter2--test-special-variable-%d" k))))
+      (setf k (1+ k)))
+    (with-temp-file file
+      (insert (format ";;; -*- lexical-binding: t -*-
+(require 'iter2)
+(defvar iter2--test-global-var-1)
+(defvar %s nil)
+(defun iter2--test-get-special-variable ()
+  %s)
+(iter2-defun iter2--test-rebinding-special-variable (x)
+  (let ((%s x))
+    (iter-yield (iter2--test-get-special-variable))
+    (iter-yield (iter2--test-get-special-variable))))
+(defun iter2--test-using-special-variable (x)
+  (iter-do (v (iter2--test-rebinding-special-variable x))
+    (push v iter2--test-global-var-1)))
+" special-variable-name special-variable-name special-variable-name)))
+    (byte-compile-file file)
+    (load (format "%s.elc" (file-name-sans-extension file)) nil t))
+  (let ((iter2--test-global-var-1 nil))
+    (should (byte-code-function-p (symbol-function 'iter2--test-rebinding-special-variable)))
+    (iter2--test-using-special-variable t)
+    (should (equal iter2--test-global-var-1 '(t t)))))

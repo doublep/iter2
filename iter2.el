@@ -40,6 +40,10 @@
 (require 'macroexp)
 (require 'subr-x)
 
+(require 'bytecomp)
+;; See its usage below.
+(declare-function 'byte-compile-not-lexical-var-p "bytecomp")
+
 
 (defgroup iter2 nil
   "Reimplementation of Elisp generators"
@@ -414,7 +418,14 @@ See `iter2-defun' for details."
                             value value-form))
                      (_
                       (error "Erroneous binding %S" binding)))
-                   (let ((special (special-variable-p var))
+                   ;; During byte-compilation, function `special-variable-p' won't give intended results for
+                   ;; variables declared in the file being compiled.  E.g. byte-compiler itself uses
+                   ;; `byte-compile-not-lexical-var-p' to decided, how to compile let-bindings.  The function
+                   ;; is not private according to Elisp naming conventions, but it's not unthinkable they just
+                   ;; drop it in a future version, so check before calling it.
+                   (let ((special (if (fboundp 'byte-compile-not-lexical-var-p)
+                                      (byte-compile-not-lexical-var-p var)
+                                    (special-variable-p var)))
                          (literal (iter2--literalp value)))
                      (cond (literal
                             (push binding converted-bindings)
@@ -877,6 +888,9 @@ See `iter2-defun' for details."
                    (and (equal (iter-next it) 1) (condition-case error (progn (iter-next it 2) nil) (iter-end-of-sequence (equal (cdr error) 2)))))
            (warn "Compatibility of `iter2' with `generator' package appears broken; please report this to maintainer (Emacs version: %s)" (emacs-version)))
         t))
+
+(unless (fboundp 'byte-compile-not-lexical-var-p)
+  (warn "Function `byte-compile-not-lexical-var-p' is missing, special variable bindings in byte-compiled `iter2-defun' might misbehave"))
 
 
 (defun iter2-log-message (format-string &rest arguments)

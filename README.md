@@ -181,44 +181,6 @@ by `iter-yield` inside generator function.  To illustrate:
   fail only at runtime.  Just remember, never ever call `iter-yield`
   by name, always use `(iter-yield ...)` form.
 
-### `let`-binding dynamic variables
-
-When `iter2-defun` gets expanded, it needs to know if `let`-bound
-variables are special (dynamic, declared with `defvar` or a similar
-form) or local.  This is normally not a problem with one exception:
-when a variable is declared in the same file as the function using it,
-and this file is byte-compiled.  Due to how Emacs’ byte-compiler
-works, it doesn’t tell the macro that variable is going to be special.
-The workaround for this is putting `defvar` form into an
-`eval-and-compile`.
-
-For example, you can verify that the following code (when
-byte-compiled) wouldn’t produce correct output without
-`eval-and-compile`:
-
-    ;;; -*- lexical-binding: t -*-
-    (require 'iter2)
-
-    (eval-and-compile
-      (defvar special-variable nil))
-
-    (defun get-special-variable ()
-      special-variable)
-
-    (iter2-defun my-function ()
-      (let ((special-variable t))
-        (iter-yield (get-special-variable))
-        (iter-yield (get-special-variable))))
-
-    (iter-do (x (my-function))
-      (print x))
-
-For what it’s worth, standard `generator` package is also affected,
-although `iter-defun` might produce code that behaves in a different
-way (still likely incorrectly).  Any other macro that uses
-`special-variable-p` in its expansion code would also be affected when
-used in byte-compiled code.
-
 ### Current buffer, point etc.<a id="save-x"></a>
 
 In general, generator functions must be aware that when `iter-yield`
