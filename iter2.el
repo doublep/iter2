@@ -1,6 +1,6 @@
 ;;; iter2.el --- Reimplementation of Elisp generators  -*- lexical-binding: t -*-
 
-;;; Copyright (C) 2017-2021 Paul Pogonyshev
+;;; Copyright (C) 2017-2022 Paul Pogonyshev
 
 ;; Author:     Paul Pogonyshev <pogonyshev@gmail.com>
 ;; Maintainer: Paul Pogonyshev <pogonyshev@gmail.com>
