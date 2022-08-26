@@ -903,6 +903,8 @@ See `iter2-defun' for details."
 (when (and (fboundp 'iter-do) (null (get 'iter-do 'edebug-form-spec)))
   (put 'iter-do 'edebug-form-spec '((symbolp form) body)))
 
+(add-to-list 'lisp-imenu-generic-expression
+             (list nil (concat "^\\s-*(iter2-defun\\s-+\\(" lisp-mode-symbol-regexp "\\)") 1))
 
 (provide 'iter2)
 
