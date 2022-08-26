@@ -1,6 +1,6 @@
 ; -*- mode: emacs-lisp; lexical-binding: t; no-byte-compile: t -*-
 
-(eldev-require-version "0.3")
+(eldev-require-version "1.2")
 
 (eldev-use-plugin 'undercover)
 
@@ -18,3 +18,6 @@
           (lambda (_selectors)
             (require 'iter2)
             (iter2--debug-converter iter2-test-debug)))
+
+(setf eldev-release-post-release-commit-message "Post-release version bump."
+      eldev-release-post-release-commit 'eldev-release-next-snapshot-version-unless-already-snapshot)
