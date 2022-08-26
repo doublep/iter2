@@ -881,6 +881,12 @@ See `iter2-defun' for details."
       (apply iter2-tracing-function (concat "%siter2: " format-string) (cons (make-string (* iter2--tracing-depth 4) ? ) arguments)))))
 
 
+(defun iter2-log-message (format-string &rest arguments)
+  "Like built-in `message', but only write to `*Messages*' buffer."
+  (let ((inhibit-message (or inhibit-message (not noninteractive))))
+    (apply #'message format-string arguments)))
+
+
 ;; Make sure that we are still compatible with `generator'.  I couldn't make it work like
 ;; I wanted with fewer `eval's.
 (eval-after-load 'iter2
@@ -893,18 +899,14 @@ See `iter2-defun' for details."
   (warn "Function `byte-compile-not-lexical-var-p' is missing, special variable bindings in byte-compiled `iter2-defun' might misbehave"))
 
 
-(defun iter2-log-message (format-string &rest arguments)
-  "Like built-in `message', but only write to `*Messages*' buffer."
-  (let ((inhibit-message (or inhibit-message (not noninteractive))))
-    (apply #'message format-string arguments)))
-
-
-;; Work around missing Edebug specification for `iter-do' macro.
+;; Work around missing Edebug specification for `iter-do' macro on older Emacs versions.
 (when (and (fboundp 'iter-do) (null (get 'iter-do 'edebug-form-spec)))
   (put 'iter-do 'edebug-form-spec '((symbolp form) body)))
 
+;; Integrate into Imenu.
 (add-to-list 'lisp-imenu-generic-expression
              (list nil (concat "^\\s-*(iter2-defun\\s-+\\(" lisp-mode-symbol-regexp "\\)") 1))
+
 
 (provide 'iter2)
 
