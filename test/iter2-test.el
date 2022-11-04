@@ -100,6 +100,8 @@
 
 (defmacro iter2--test-no-yields (name &rest body)
   (declare (indent defun))
+  ;; On Emacs 29 snapshots warnings are shown even when not byte-compiling now.  Annoying,
+  ;; but at least doesn't break the tests.
   (let ((dont-test-for-warnings (eq (car body) :dont-test-for-warnings)))
     (when dont-test-for-warnings
       (pop body))
