@@ -40,5 +40,9 @@ jobs:
 
     - name: Test the project
       run: |
-        eldev -p -dtT -C test --expect 100
-        eldev -dtT -C compile --warnings-as-errors
+        eldev -p -dtTQC test --expect 100
+        eldev -dtTQC compile --warnings-as-errors
+
+    - name: Ensure that copyright notices are up-to-date
+      run: |
+        eldev -p -dvQTC doctor up-to-date-copyright
