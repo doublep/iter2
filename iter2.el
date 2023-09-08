@@ -609,7 +609,8 @@ See `iter2-defun' for details."
                     (converted-value-form (car converted-value)))
                (when iter2-generate-tracing-functions
                  (setq converted-value-form `(let ((,iter2--value ,converted-value-form))
-                                               (iter2--do-trace "yielding %S" ,iter2--value)
+                                               (iter2--do-trace "yielding %s"
+                                                                (iter2--pp-to-string ,iter2--value 60 6))
                                                ,iter2--value)))
                (when (cdr converted-value)
                  (iter2--add-converted-form converted converted-value-form)
@@ -784,7 +785,9 @@ See `iter2-defun' for details."
 (defun iter2--continuation-invocation-form (value &optional lambda)
   (if iter2-generate-tracing-functions
       `(let ((function ,(or lambda `(pop ,iter2--continuations))))
-         (iter2--do-trace "invoking %S with value %S" function ,value)
+         (iter2--do-trace "invoking %s with value %s"
+                          (iter2--pp-to-string function 60 6)
+                          (iter2--pp-to-string ,value 60 6))
          (let ((iter2--tracing-depth (1+ iter2--tracing-depth)))
            (funcall function ,value)))
     `(funcall ,(or lambda `(pop ,iter2--continuations)) ,value)))
@@ -792,7 +795,7 @@ See `iter2-defun' for details."
 (defun iter2--cleanup-invocation-body ()
   (if iter2-generate-tracing-functions
       `(let ((function (pop ,iter2--cleanups)))
-         (iter2--do-trace "cleaning up using %S" function)
+         (iter2--do-trace "cleaning up using %s" (iter2--pp-to-string function 60 6))
          (funcall function))
     `(funcall (pop ,iter2--cleanups))))
 
