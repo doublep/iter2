@@ -94,8 +94,17 @@ Key parameter meaning:
      (iter2--pretty-print-if-failing fn
        (should (= (iter2--count-lambas fn) ,expected)))))
 
+;; These are new in Emacs 30.
+(declare-function closurep (x))
+(declare-function make-interpreted-closure (&rest _))
+(defun iter2--test-closurep (x)
+  (and (fboundp 'closurep) (closurep x)))
+
 (defun iter2--count-lambas (form)
   (pcase (macroexpand-1 form)
+    ((pred iter2--test-closurep)
+     ;; FIXME: Is it fine just accessing stuff with `aref' like this?
+     (1+ (apply #'+ (mapcar #'iter2--count-lambas (aref form 1)))))
     (`(function (lambda ,_arglist . ,body))
      (1+ (apply #'+ (mapcar #'iter2--count-lambas body))))
     (`(closure ,_bindings ,_arglist . ,body)
@@ -129,8 +138,8 @@ Key parameter meaning:
   (declare (indent 0))
   `(let* (traced-messages
           (iter2-tracing-function (lambda (format-string &rest arguments)
-                                    ;; Ignore exact invoked closures.
-                                    (push (replace-regexp-in-string "iter2: invoking \\((.+)\\) with value " "..." (apply #'format format-string arguments) t t 1)
+                                    ;; Ignore exact invoked closures.  They used to be printed as "(...)" before, but became "#[...]" in Emacs 30.
+                                    (push (replace-regexp-in-string "iter2: invoking \\((.+)\\|#\\[.+\\]\\) with value " "..." (apply #'format format-string arguments) t t 1)
                                           traced-messages))))
      ,@body))
 
@@ -153,9 +162,11 @@ Key parameter meaning:
 
 
 (defun iter2--test-intern-symbols (value)
-  (cond ((consp value)   (cons (iter2--test-intern-symbols (car value)) (iter2--test-intern-symbols (cdr value))))
-        ((symbolp value) (intern (symbol-name value)))
-        (t               value)))
+  (cond ((consp value)                (cons (iter2--test-intern-symbols (car value)) (iter2--test-intern-symbols (cdr value))))
+        ;; FIXME: Is it fine just accessing stuff with `aref' like this?
+        ((iter2--test-closurep value) (make-interpreted-closure (aref value 0) (iter2--test-intern-symbols (aref value 1)) (aref value 2)))
+        ((symbolp value)              (intern (symbol-name value)))
+        (t                            value)))
 
 
 (defvar iter2--test-global-var-1 nil)
