@@ -39,7 +39,21 @@
               (pp ,function)
               (signal (car ,error) (cdr ,error))))))
 
-(cl-defmacro iter2--test (function &key args returned returned-expression expected end-value max-length body)
+(cl-defmacro iter2--test (function &key args expected returned returned-expression end-value max-length body)
+  "Test given FUNCTION.
+Key parameter meaning:
+
+    ARGS       -- passed to the FUNCTION call itself;
+    EXPECTED   -- list of values that must be yielded by the iterator;
+    RETURNED   -- list of expressions to calculate values for each
+                  successive call to `iter-next'; they can use variable
+                  `value' that holds the last yielded value;
+    RETURNED-EXPRESSION -- instead of a list, you can specify one
+                  expression to be evaluated as many times as needed;
+    END-VALUE  -- the end value that must be returned by the iterator
+                  when it signals `iter-end-of-sequence';
+    MAX-LENGTH -- stop checking after this many yields (for unbounded
+                  iterators)."
   (cl-assert (not (and returned returned-expression)))
   (let ((description (format-message "iterator %S" (if args `(apply ,function ,args) `(funcall ,function)))))
     ;; Don't create symbols for variables in a private macro: this lets
@@ -56,7 +70,7 @@
          (condition-case error
              (catch 'too-long
                (while t
-                 (setq value (iter-next it ,(if returned `(pop to-return) returned-expression)))
+                 (setq value (iter-next it ,(if returned `(eval (pop to-return) t) returned-expression)))
                  (when (> (setq length (1+ length)) ,(or max-length (+ (length expected) 5)))
                    (throw 'too-long nil))
                  (push value result)
@@ -531,11 +545,11 @@
 
 (ert-deftest iter2-cond-5 ()
   (iter2--runtime-eval fn (iter2-lambda (x y z) (cond ((iter-yield 1)) (x) (y 4) (z (vector (iter-yield 2)))))
-    (iter2--test fn :args '(1 2 3)       :returned '(t)     :expected '(1)   :end-value t)
-    (iter2--test fn :args '(1 2 3)       :returned '(nil)   :expected '(1)   :end-value 1)
-    (iter2--test fn :args '(nil 2 3)     :returned '(nil)   :expected '(1)   :end-value 4)
-    (iter2--test fn :args '(nil nil 3)   :returned '(nil x) :expected '(1 2) :end-value [x])
-    (iter2--test fn :args '(nil nil nil) :returned '(nil)   :expected '(1)   :end-value nil)
+    (iter2--test fn :args '(1 2 3)       :returned '(t)      :expected '(1)   :end-value t)
+    (iter2--test fn :args '(1 2 3)       :returned '(nil)    :expected '(1)   :end-value 1)
+    (iter2--test fn :args '(nil 2 3)     :returned '(nil)    :expected '(1)   :end-value 4)
+    (iter2--test fn :args '(nil nil 3)   :returned '(nil 'x) :expected '(1 2) :end-value [x])
+    (iter2--test fn :args '(nil nil nil) :returned '(nil)    :expected '(1)   :end-value nil)
     (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
@@ -880,9 +894,9 @@
 (ert-deftest iter2-condition-case-2 ()
   (iter2--runtime-eval fn (iter2-lambda () (condition-case err (when (iter-yield 1) (signal (iter-yield 2) (iter-yield 3)))
                                              (file-error (iter-yield (cdr err))) (arith-error (iter-yield 4) (iter-yield 5))))
-    (iter2--test fn                                  :expected '(1))
-    (iter2--test fn :returned '(t file-error t 6)    :expected '(1 2 3 t)   :end-value 6)
-    (iter2--test fn :returned '(t arith-error t 7 8) :expected '(1 2 3 4 5) :end-value 8)
+    (iter2--test fn                                   :expected '(1))
+    (iter2--test fn :returned '(t 'file-error t 6)    :expected '(1 2 3 t)   :end-value 6)
+    (iter2--test fn :returned '(t 'arith-error t 7 8) :expected '(1 2 3 4 5) :end-value 8)
     (iter2--assert-num-lambdas fn 9)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
@@ -914,10 +928,10 @@
 
 (ert-deftest iter2-catch-3 ()
   (iter2--runtime-eval fn (iter2-lambda () (catch (or (iter-yield 1) 'x) (catch (or (iter-yield 2) 'y) (throw (or (iter-yield 3) 'x) (iter-yield 4)) 5) 6))
-    (iter2--test fn                      :expected '(1 2 3 4))
-    (iter2--test fn :returned '(x y y 0) :expected '(1 2 3 4) :end-value 6)
-    (iter2--test fn :returned '(y x y 0) :expected '(1 2 3 4) :end-value 0)
-    (should (= (catch 'z (iter2--test fn :returned '(a b z 0) :expected '(1 2 3 4))) 0))
+    (iter2--test fn                         :expected '(1 2 3 4))
+    (iter2--test fn :returned '('x 'y 'y 0) :expected '(1 2 3 4) :end-value 6)
+    (iter2--test fn :returned '('y 'x 'y 0) :expected '(1 2 3 4) :end-value 0)
+    (should (= (catch 'z (iter2--test fn :returned '('a 'b 'z 0) :expected '(1 2 3 4))) 0))
     (iter2--assert-num-lambdas fn 15)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
@@ -927,16 +941,16 @@
                               (while (let ((x (iter-yield nil))) (when x (insert (prin1-to-string x)) t)))
                               (buffer-substring (point-min) (point-max))))
     (with-temp-buffer
-      (iter2--test fn                        :expected '(nil)             :end-value ""
+      (iter2--test fn                         :expected '(nil)             :end-value ""
                    :body ((set-buffer (messages-buffer)))))
     (with-temp-buffer
-      (iter2--test fn :returned '(1)         :expected '(nil nil)         :end-value "1"
+      (iter2--test fn :returned '(1)          :expected '(nil nil)         :end-value "1"
                    :body ((set-buffer (messages-buffer)))))
     (with-temp-buffer
-      (iter2--test fn :returned '(1 2)       :expected '(nil nil nil)     :end-value "12"
+      (iter2--test fn :returned '(1 2)        :expected '(nil nil nil)     :end-value "12"
                    :body ((set-buffer (messages-buffer)))))
     (with-temp-buffer
-      (iter2--test fn :returned '(1 2 (3 4)) :expected '(nil nil nil nil) :end-value "12(3 4)"
+      (iter2--test fn :returned '(1 2 '(3 4)) :expected '(nil nil nil nil) :end-value "12(3 4)"
                    :body ((set-buffer (messages-buffer)))))
     (iter2--assert-num-lambdas fn 8)
     (iter2--test-byte-compiles-with-no-warnings fn)))
@@ -946,10 +960,10 @@
                             (with-temp-buffer
                               (while (let ((x (iter-yield nil))) (when x (insert (prin1-to-string x)) t)))
                               (buffer-substring (point-min) (point-max))))
-    (iter2--test fn                        :expected '(nil)             :end-value "")
-    (iter2--test fn :returned '(1)         :expected '(nil nil)         :end-value "1")
-    (iter2--test fn :returned '(1 2)       :expected '(nil nil nil)     :end-value "12")
-    (iter2--test fn :returned '(1 2 (3 4)) :expected '(nil nil nil nil) :end-value "12(3 4)")
+    (iter2--test fn                         :expected '(nil)             :end-value "")
+    (iter2--test fn :returned '(1)          :expected '(nil nil)         :end-value "1")
+    (iter2--test fn :returned '(1 2)        :expected '(nil nil nil)     :end-value "12")
+    (iter2--test fn :returned '(1 2 '(3 4)) :expected '(nil nil nil nil) :end-value "12(3 4)")
     (iter2--assert-num-lambdas fn 12)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
