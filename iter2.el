@@ -155,6 +155,26 @@ See `iter2-defun' for details."
   (let ((iter2-generate-tracing-functions t))
     (macroexpand-1 `(iter2-lambda ,arglist ,@body))))
 
+
+(defmacro iter2-next (iterator yield-result)
+  "Similar to `iter-next', but can inject errors into the ITERATOR.
+Can only be used with `iter2' iterators, not those of original
+`generator' package (`iter-next' works with either, but has less
+functionality).
+
+If form YIELD-RESULT exits nonlocally (using `signal', `throw' or
+any derived mechanism), this nonlocal exit is “injected” into the
+iterator function.  It then works as if the exit was triggered by
+the last issued `(iter-yield ...)' form.  If the function has an
+appropriate `condition-case' or `catch' handler, the control is
+subsequently transferred to it.
+
+If YIELD-RESULT never exits nonlocally, behavior of this macro is
+identical to that of `iter-next' (with the exception that the
+iterator must be created with `iter2')."
+  `(funcall ,iterator :iter2-next (lambda () ,@(macroexp-unprogn yield-result))))
+
+
 (defun iter2--literalp (x)
   "Determine if X involves no evaluation."
   (if (atom x)
@@ -194,6 +214,10 @@ See `iter2-defun' for details."
   `(setf ,converted-chunks (cons (macroexp-progn (nreverse ,converted)) ,converted-chunks)
          ,converted        ,(when next-chunk-forms `(list ,@next-chunk-forms))))
 
+(defsubst iter2--identity-bind (value)
+  "Create an `identity'-like function and bind it with given VALUE."
+  (lambda () value))
+
 (defun iter2--convert-function-body (body &optional tracing)
   (unless lexical-binding
     (error "Generator functions require lexical binding"))
@@ -228,12 +252,13 @@ See `iter2-defun' for details."
          ;; variables declared there.
          (setq ,iter2--continuations (list (lambda (,iter2--value) ,@(macroexp-unprogn (iter2--merge-continuation-form converted)))))
          (lambda (operation value)
-           (cond ((eq operation :next)
+           (cond ((or (when (eq operation :next) (setq value (iter2--identity-bind value))) (eq operation :iter2-next))
                   ,@(funcall apply-debugger
                              ;; Rewritten in a somewhat weird form to maximize performance.
                              `(while (progn (setq value ,(iter2--continuation-invocation-form 'value `(or (pop ,iter2--continuations)
-                                                                                                          (signal 'iter-end-of-sequence value))))
-                                            (not ,iter2--yielding)))
+                                                                                                          (signal 'iter-end-of-sequence (funcall value)))))
+                                            (not ,iter2--yielding))
+                                (setq value (iter2--identity-bind value)))
                              `(setq ,iter2--yielding nil)
                              `value))
                  ((eq operation :close)
@@ -381,7 +406,9 @@ See `iter2-defun' for details."
              (let* ((converted-condition  (iter2--convert-form condition))
                     (converted-while-body (when while-body (iter2--convert-progn while-body))))
                (if (or (cdr converted-condition) (cdr converted-while-body))
-                   (let ((special-empty-body (and (null while-body) (eq (cdr converted-condition) iter2--value))))
+                   ;; One special case is optimized: if there is no `while' body and the condition yields as
+                   ;; its last operator.
+                   (let ((special-empty-body (and (null while-body) (equal (cdr converted-condition) `(funcall ,iter2--value)))))
                      (when while-body
                        (setq converted-while-body (iter2--merge-continuation-form converted-while-body)))
                      (if (cdr converted-condition)
@@ -403,7 +430,8 @@ See `iter2-defun' for details."
                                                                        (setq ,iter2--stack (cdr ,iter2--stack))))
                                                               iter2--stack)
                              converted))
-                     (push (iter2--continuation-invocation-form special-empty-body `(car ,iter2--stack)) converted)
+                     ;; Initial value is important in some cases, see above.
+                     (push (iter2--continuation-invocation-form (when special-empty-body '(lambda () t)) `(car ,iter2--stack)) converted)
                      (setq can-yield t))
                  ;; Nothing yields, the simplest case.
                  (push `(while ,(car converted-condition) ,@(when while-body (macroexp-unprogn (car converted-while-body)))) converted))))
@@ -461,7 +489,7 @@ See `iter2-defun' for details."
                                                                                                                                          ,@let-body)))))
                                            ;; We need to bind already converted values now.
                                            (push (iter2--let*-yielding-form catcher-outer-bindings catcher-inner-bindings
-                                                                            (iter2--merge-continuation-form (iter2--convert-form `(let* ((,var ,iter2--value) ,@bindings) ,@let-body)))
+                                                                            (iter2--merge-continuation-form (iter2--convert-form `(let* ((,var (funcall ,iter2--value)) ,@bindings) ,@let-body)))
                                                                             (iter2--merge-continuation-form converted-value))
                                                  converted))
                                          (setq bindings  nil
@@ -531,7 +559,7 @@ See `iter2-defun' for details."
                                                                          (if result
                                                                              (push (if (eq result t)
                                                                                        ;; Completed body, but yielded.  Clean up when control is regained.
-                                                                                       (lambda (,iter2--value) ,(iter2--cleanup-invocation-body) ,iter2--value)
+                                                                                       (lambda (,iter2--value) ,(iter2--cleanup-invocation-body) (funcall ,iter2--value))
                                                                                      ;; Continuing.  Re-add self.
                                                                                      ,iter2--catcher)
                                                                                    ,iter2--continuations)
@@ -751,7 +779,7 @@ See `iter2-defun' for details."
                            `(progn ,(iter2--continuation-adding-form (reverse (cdr converted-chunks)))
                                    ,@(macroexp-unprogn (car converted-chunks)))
                          (car converted-chunks))
-                       (if converted (macroexp-progn converted) iter2--value)))
+                       (if converted (macroexp-progn converted) `(funcall ,iter2--value))))
         (cons (macroexp-progn converted) nil)))))
 
 (defun iter2--convert-form-tracer (function form)
@@ -799,7 +827,7 @@ See `iter2-defun' for details."
 (defun iter2--merge-continuation-form (converted &optional var)
   (let ((converted-form    (car converted))
         (continuation-form (cdr converted)))
-    (if (and continuation-form (not (eq continuation-form iter2--value)))
+    (if continuation-form
         `(progn ,(iter2--continuation-adding-form (list continuation-form) var) ,@(macroexp-unprogn converted-form))
       converted-form)))
 
