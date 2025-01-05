@@ -156,7 +156,7 @@ See `iter2-defun' for details."
     (macroexpand-1 `(iter2-lambda ,arglist ,@body))))
 
 
-(defmacro iter2-next (iterator yield-result)
+(defmacro iter2-next (iterator &optional yield-result)
   "Similar to `iter-next', but can inject errors into the ITERATOR.
 Can only be used with `iter2' iterators, not those of original
 `generator' package (`iter-next' works with either, but has less
