@@ -770,6 +770,12 @@ iterator must be created with `iter2')."
              (push form converted)))
           (when can-yield
             (iter2--finish-chunk converted-chunks converted)
+            ;; With the addition of `iter2-next', we need to resolve the incoming values (wrapped in lambdas),
+            ;; even if the result is unused.  The reason is that the lambdas can exit nonlocally or have a
+            ;; side effect.  This is not possible with `iter-next', because the lambdas in this case just
+            ;; return a precomputed value, see `iter2--identity-bind'.  However, with `iter2-next' they can
+            ;; include arbitrary forms.
+            (push `(funcall ,iter2--value) body)
             (setq can-yield nil))))
 
       (setq converted (nreverse converted))
