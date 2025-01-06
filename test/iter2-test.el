@@ -427,6 +427,19 @@ Key parameter meaning:
     (iter2--assert-num-lambdas fn 8)    ; was 5 before `iter2-next'
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
+(ert-deftest iter2-prog1-7 ()
+  (iter2--runtime-eval fn (iter2-lambda () (condition-case nil (prog1 (iter-yield 1) (iter-yield 2) (iter-yield 3)) (user-error "user error")))
+    (iter2--test fn                :expected '(1 2 3)                                      :end-value nil)
+    (iter2--test fn                :expected '(1 2 3) :returned '(5 6 7)                   :end-value 5)
+    (iter2--test fn :no-std-next t :expected '(1)     :returned '((user-error "stop"))     :end-value "user error")
+    (iter2--test fn :no-std-next t :expected '(1)     :returned '((error "stop"))          :end-signal '(error "stop"))
+    (iter2--test fn :no-std-next t :expected '(1 2)   :returned '(t (user-error "stop"))   :end-value "user error")
+    (iter2--test fn :no-std-next t :expected '(1 2)   :returned '(t (error "stop"))        :end-signal '(error "stop"))
+    (iter2--test fn :no-std-next t :expected '(1 2 3) :returned '(t 5 (user-error "stop")) :end-value "user error")
+    (iter2--test fn :no-std-next t :expected '(1 2 3) :returned '(t 5 (error "stop"))      :end-signal '(error "stop"))
+    (iter2--assert-num-lambdas fn 9)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
+
 (ert-deftest iter2-and-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (and 3 (iter-yield 1)))
     (iter2--test fn                :expected '(1))

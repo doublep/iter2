@@ -538,7 +538,10 @@ iterator must be created with `iter2')."
                           (if (cdr converted-rest)
                               (progn (push `(push ,(or (cdr converted-value) (car converted-value)) ,iter2--stack) converted)
                                      (iter2--add-converted-form converted (car converted-rest))
-                                     (iter2--finish-chunk converted-chunks converted `(pop ,iter2--stack)))
+                                     (iter2--finish-chunk converted-chunks converted
+                                                          ;; See comments about `iter2-next' elsewhere.
+                                                          `(progn (funcall ,iter2--value)
+                                                                  (pop ,iter2--stack))))
                             (push `(prog1 ,(cdr converted-value) ,@rest) converted)))
                  (push `(prog1 ,(car converted-value) ,@(macroexp-unprogn (car converted-rest))) converted))))
 
