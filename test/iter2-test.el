@@ -364,19 +364,19 @@ Key parameter meaning:
 (ert-deftest iter2-progn-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (iter-yield 1) (iter-yield 2))
     (iter2--test fn :expected '(1 2))
-    (iter2--assert-num-lambdas fn 5)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-progn-2 ()
   (iter2--runtime-eval fn (iter2-lambda (x) (progn (progn (dolist (e x) (iter-yield e)))))
     (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
-    (iter2--assert-num-lambdas fn 8)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-progn-3 ()
   (iter2--runtime-eval fn (iter2-lambda (x) (progn (progn (dolist (e x) (iter-yield e)) 'done)))
     (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value 'done)
-    (iter2--assert-num-lambdas fn 8)    ; was 6 before `iter2-next'
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-prog1-1 ()
@@ -404,7 +404,7 @@ Key parameter meaning:
   (iter2--runtime-eval fn (iter2-lambda () (prog1 (iter-yield 1) (iter-yield 2)) (iter-yield 3))
     (iter2--test fn                    :expected '(1 2 3))
     (iter2--test fn :returned '(3 4 5) :expected '(1 2 3) :end-value 5)
-    (iter2--assert-num-lambdas fn 6)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-prog1-5 ()
@@ -424,7 +424,7 @@ Key parameter meaning:
 (ert-deftest iter2-prog1-6 ()
   (iter2--runtime-eval fn (iter2-lambda (x) (prog1 (dolist (e x) (iter-yield e))))
     (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
-    (iter2--assert-num-lambdas fn 8)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-prog1-7 ()
@@ -437,21 +437,21 @@ Key parameter meaning:
     (iter2--test fn :no-std-next t :expected '(1 2)   :returned '(t (error "stop"))        :end-signal '(error "stop"))
     (iter2--test fn :no-std-next t :expected '(1 2 3) :returned '(t 5 (user-error "stop")) :end-value "user error")
     (iter2--test fn :no-std-next t :expected '(1 2 3) :returned '(t 5 (error "stop"))      :end-signal '(error "stop"))
-    (iter2--assert-num-lambdas fn 9)
+    (iter2--assert-num-lambdas fn 8)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-and-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (and 3 (iter-yield 1)))
     (iter2--test fn                :expected '(1))
     (iter2--test fn :returned '(t) :expected '(1) :end-value t)
-    (iter2--assert-num-lambdas fn 5)    ; was 3 before `iter2-next'
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-and-2 ()
   (iter2--runtime-eval fn (iter2-lambda () (and 3 (iter-yield 1) 4))
     (iter2--test fn                :expected '(1))
     (iter2--test fn :returned '(t) :expected '(1) :end-value 4)
-    (iter2--assert-num-lambdas fn 5)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-and-3 ()
@@ -459,7 +459,7 @@ Key parameter meaning:
     (iter2--test fn                  :expected '(1))
     (iter2--test fn :returned '(t)   :expected '(1 2) :end-value nil)
     (iter2--test fn :returned '(t t) :expected '(1 2) :end-value t)
-    (iter2--assert-num-lambdas fn 7)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-and-4 ()
@@ -469,33 +469,33 @@ Key parameter meaning:
     (iter2--test fn :returned '(t t)     :expected '(1 2 3 nil))
     (iter2--test fn :returned '(4 5 6)   :expected '(1 2 3 6))
     (iter2--test fn :returned '(4 5 6 7) :expected '(1 2 3 6) :end-value 7)
-    (iter2--assert-num-lambdas fn 10)   ; was 6 before `iter2-next'
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-and-5 ()
   (iter2--runtime-eval fn (iter2-lambda () (and (iter-yield 1)))
     (iter2--test fn                :expected '(1))
     (iter2--test fn :returned '(t) :expected '(1) :end-value t)
-    (iter2--assert-num-lambdas fn 4)    ; was 3 before `iter2-next'
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-and-6 ()
   (iter2--runtime-eval fn (iter2-lambda (x) (and (dolist (e x) (iter-yield e))))
     (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
-    (iter2--assert-num-lambdas fn 8)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-or-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (or 3 (iter-yield 1)))
     (iter2--test fn :expected '() :end-value 3)
-    (iter2--assert-num-lambdas fn 5)    ; was 3 before `iter2-next'
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-or-2 ()
   (iter2--runtime-eval fn (iter2-lambda () (or nil (iter-yield 1) 4))
     (iter2--test fn                :expected '(1) :end-value 4)
     (iter2--test fn :returned '(t) :expected '(1) :end-value t)
-    (iter2--assert-num-lambdas fn 5)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-or-3 ()
@@ -503,7 +503,7 @@ Key parameter meaning:
     (iter2--test fn                    :expected '(1 2))
     (iter2--test fn :returned '(t)     :expected '(1)   :end-value t)
     (iter2--test fn :returned '(nil 3) :expected '(1 2) :end-value 3)
-    (iter2--assert-num-lambdas fn 7)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-or-4 ()
@@ -513,20 +513,20 @@ Key parameter meaning:
     (iter2--test fn :returned '(nil 4)         :expected '(1 2)       :end-value 4)
     (iter2--test fn :returned '(nil nil 5)     :expected '(1 2 3 5))
     (iter2--test fn :returned '(nil nil nil 6) :expected '(1 2 3 nil) :end-value 6)
-    (iter2--assert-num-lambdas fn 10)   ; was 6 before `iter2-next'
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-or-5 ()
   (iter2--runtime-eval fn (iter2-lambda () (or (iter-yield 1)))
     (iter2--test fn                :expected '(1))
     (iter2--test fn :returned '(t) :expected '(1) :end-value t)
-    (iter2--assert-num-lambdas fn 4)    ; was 3 before `iter2-next'
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-or-6 ()
   (iter2--runtime-eval fn (iter2-lambda (x) (or (dolist (e x) (iter-yield e))))
     (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
-    (iter2--assert-num-lambdas fn 8)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-if-1 ()
@@ -534,7 +534,7 @@ Key parameter meaning:
     (iter2--test fn :args '(nil)                :expected '(2))
     (iter2--test fn :args '(t)                  :expected '(1))
     (iter2--test fn :args '(t)   :returned '(t) :expected '(1) :end-value t)
-    (iter2--assert-num-lambdas fn 6)    ; was 3 before `iter2-next'
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-if-2 ()
@@ -542,7 +542,7 @@ Key parameter meaning:
     (iter2--test fn :args '(nil)                :expected '(2) :end-value 3)
     (iter2--test fn :args '(t)                  :expected '(1) :end-value 3)
     (iter2--test fn :args '(t)   :returned '(t) :expected '(1) :end-value 3)
-    (iter2--assert-num-lambdas fn 6)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-if-3 ()
@@ -563,7 +563,7 @@ Key parameter meaning:
     (iter2--test fn                  :expected '(1 3))
     (iter2--test fn :returned '(t)   :expected '(1 2))
     (iter2--test fn :returned '(t t) :expected '(1 2) :end-value t)
-    (iter2--assert-num-lambdas fn 7)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-if-6 ()
@@ -579,7 +579,7 @@ Key parameter meaning:
     (iter2--test fn :args '((nil) (nil))            :expected '(2))
     (iter2--test fn :args '(nil t)                  :expected '(3))
     (iter2--test fn :args '(nil nil) :returned '(t) :expected '(1) :end-value t)
-    (iter2--assert-num-lambdas fn 7)    ; was 3 before `iter2-next'
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-cond-2 ()
@@ -587,7 +587,7 @@ Key parameter meaning:
     (iter2--test fn                      :expected '(1 2)     :end-value 1)
     (iter2--test fn :returned '(1 2)     :expected '(1 2 3 4) :end-value 2)
     (iter2--test fn :returned '(1 2 3 4) :expected '(1 2 3 4) :end-value 3)
-    (iter2--assert-num-lambdas fn 9)    ; was 7 before `iter2-next'
+    (iter2--assert-num-lambdas fn 7)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-cond-3 ()
@@ -595,7 +595,7 @@ Key parameter meaning:
     (iter2--test fn                      :expected '(1 4))
     (iter2--test fn :returned '(t t)     :expected '(1 2)   :end-value '(t 3))
     (iter2--test fn :returned '(nil t t) :expected '(1 4 5) :end-value '(t 6))
-    (iter2--assert-num-lambdas fn 10)   ; was 7 before `iter2-next'
+    (iter2--assert-num-lambdas fn 7)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-cond-4 ()
@@ -607,7 +607,7 @@ Key parameter meaning:
     (iter2--test fn :args '(nil nil nil 5)   :returned '(t 6)     :expected '(2 3) :end-value '(6))
     (iter2--test fn :args '(nil nil nil 5)   :returned '(nil nil) :expected '(2 4) :end-value 5)
     (iter2--test fn :args '(nil nil nil 5)   :returned '(nil 6)   :expected '(2 4) :end-value 0)
-    (iter2--assert-num-lambdas fn 9)    ; was 7 before `iter2-next'
+    (iter2--assert-num-lambdas fn 7)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-cond-5 ()
@@ -617,19 +617,19 @@ Key parameter meaning:
     (iter2--test fn :args '(nil 2 3)     :returned '(nil)    :expected '(1)   :end-value 4)
     (iter2--test fn :args '(nil nil 3)   :returned '(nil 'x) :expected '(1 2) :end-value [x])
     (iter2--test fn :args '(nil nil nil) :returned '(nil)    :expected '(1)   :end-value nil)
-    (iter2--assert-num-lambdas fn 7)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-cond-6 ()
   (iter2--runtime-eval fn (iter2-lambda (x) (cond ((dolist (e x) (iter-yield e)))))
     (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
-    (iter2--assert-num-lambdas fn 8)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-while-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (while t (iter-yield t)))
     (iter2--test fn :expected '(t t t t t) :max-length 5)
-    (iter2--assert-num-lambdas fn 6)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-while-2 ()
@@ -637,7 +637,7 @@ Key parameter meaning:
     (iter2--test fn :args '(0)                        :expected '(1))
     (iter2--test fn :args '(0) :returned '(t t t)     :expected '(1 2 3 4))
     (iter2--test fn :args '(0) :returned-expression t :expected '(1 2 3 4 5) :max-length 5)
-    (iter2--assert-num-lambdas fn 6)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-while-3 ()
@@ -646,7 +646,7 @@ Key parameter meaning:
     (iter2--test fn :args '(0) :returned '(t t t)         :expected '(1 inside 2 inside 3))
     (iter2--test fn :args '(0) :returned '(t t t t)       :expected '(1 inside 2 inside 3))
     (iter2--test fn :args '(0) :returned '(t nil t nil t) :expected '(1 inside 2 inside 3 inside 4))
-    (iter2--assert-num-lambdas fn 7)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-while-4 ()
@@ -655,7 +655,7 @@ Key parameter meaning:
     (iter2--test fn :args '(t)                                         :expected '(t))
     (iter2--test fn :args '(1)  :returned '(2 3)                       :expected '(1 2 3))
     (iter2--test fn :args '(0)  :returned-expression (1+ (or value 0)) :expected '(0 1 2 3 4) :max-length 5)
-    (iter2--assert-num-lambdas fn 6)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-while-5 ()
@@ -664,7 +664,7 @@ Key parameter meaning:
     (iter2--test fn :returned '(t)       :expected '(1 3 1 2))
     (iter2--test fn :returned '(nil t)   :expected '(1 2 3 1 2))
     (iter2--test fn :returned '(nil t t) :expected '(1 2 3 1 2))
-    (iter2--assert-num-lambdas fn 10)   ; was 6 before `iter2-next'
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-while-6 ()
@@ -673,7 +673,7 @@ Key parameter meaning:
     (iter2--test fn :returned '(1 -2)         :expected '(1 2))
     (iter2--test fn :returned '(1 1 nil 0 0)  :expected '(1 2 3 1 2))
     (iter2--test fn :returned '(-1 2 nil 0 0) :expected '(1 2 3 1 2))
-    (iter2--assert-num-lambdas fn 8)    ; was 6 before `iter2-next'
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-while-7 ()
@@ -691,7 +691,7 @@ Key parameter meaning:
 (ert-deftest iter2-let-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (let ((x 1)) (iter-yield x)))
     (iter2--test fn :expected '(1))
-    (iter2--assert-num-lambdas fn 5)    ; was 3 before `iter2-next'
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-let-2 ()
@@ -699,7 +699,7 @@ Key parameter meaning:
     (iter2--test fn                  :expected '(1 nil))
     (iter2--test fn :returned '(t)   :expected '(1 t))
     (iter2--test fn :returned '(t 5) :expected '(1 t) :end-value 5)
-    (iter2--assert-num-lambdas fn 7)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-let-3 ()
@@ -708,18 +708,18 @@ Key parameter meaning:
   (iter2--runtime-eval fn (iter2-lambda (x) (let ((x (iter-yield x)) (y x) (x 0) (x (iter-yield x))) (list x y)))
     (iter2--test fn :args '(1)                  :expected '(1 1) :end-value '(nil 1))
     (iter2--test fn :args '(1) :returned '(2 3) :expected '(1 1) :end-value '(3 1))
-    (iter2--assert-num-lambdas fn 7)))  ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)))
 
 (ert-deftest iter2-let-4 ()
   (iter2--runtime-eval fn (iter2-lambda (a b c) (let ((a (iter-yield c)) (b (iter-yield b)) (c (iter-yield a))) (list a b c)))
     (iter2--test fn :args '(1 2 3) :returned '(4 5 6) :expected '(3 2 1) :end-value '(4 5 6))
-    (iter2--assert-num-lambdas fn 9)    ; was 6 before `iter2-next'
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-let-5 ()
   (iter2--runtime-eval fn (iter2-lambda (x) (let () (dolist (e x) (iter-yield e))))
     (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
-    (iter2--assert-num-lambdas fn 8)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-let-error-1 ()
@@ -728,7 +728,7 @@ Key parameter meaning:
 (ert-deftest iter2-let*-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (let* ((x 1)) (iter-yield x)))
     (iter2--test fn :expected '(1))
-    (iter2--assert-num-lambdas fn 5)    ; was 3 before `iter2-next'
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-let*-2 ()
@@ -736,14 +736,14 @@ Key parameter meaning:
     (iter2--test fn                  :expected '(1 nil))
     (iter2--test fn :returned '(t)   :expected '(1 t))
     (iter2--test fn :returned '(t 5) :expected '(1 t) :end-value 5)
-    (iter2--assert-num-lambdas fn 7)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-let*-3 ()
   (iter2--runtime-eval fn (iter2-lambda (x) (let* ((x (iter-yield x)) (y x) (x 0) (x (iter-yield x))) (list x y)))
     (iter2--test fn :args '(1)                  :expected '(1 0) :end-value '(nil nil))
     (iter2--test fn :args '(1) :returned '(2 3) :expected '(1 0) :end-value '(3 2))
-    (iter2--assert-num-lambdas fn 8)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-let*-4 ()
@@ -751,20 +751,20 @@ Key parameter meaning:
   ;; do not test for no warnings.
   (iter2--runtime-eval fn (iter2-lambda (a b c) (let* ((a (iter-yield c)) (b (iter-yield b)) (c (iter-yield a))) (list a b c)))
     (iter2--test fn :args '(1 2 3) :returned '(4 5 6) :expected '(3 2 4) :end-value '(4 5 6))
-    (iter2--assert-num-lambdas fn 11))) ; was 6 before `iter2-next'
+    (iter2--assert-num-lambdas fn 6)))
 
 (ert-deftest iter2-let*-5 ()
   ;; Like above, with extra unused bindings.
   (iter2--runtime-eval fn (iter2-lambda (a b c) (let* ((a (iter-yield c)) (x) (y) (b (iter-yield b)) z (c (iter-yield a))) (list a b c)))
     (iter2--test fn :args '(1 2 3) :returned '(4 5 6) :expected '(3 2 4) :end-value '(4 5 6))
-    (iter2--assert-num-lambdas fn 11))) ; was 6 before `iter2-next'
+    (iter2--assert-num-lambdas fn 6)))
 
 (ert-deftest iter2-let-with-globals-1 ()
   (let ((iter2--test-global-var-1 0))
     (iter2--runtime-eval fn (iter2-lambda () (let ((iter2--test-global-var-1 1)) (iter-yield iter2--test-global-var-1) (iter-yield iter2--test-global-var-1)))
       (iter2--test fn :expected '(1 1)
                    :after-yield ((should (= iter2--test-global-var-1 0))))
-      (iter2--assert-num-lambdas fn 8)    ; was 6 before `iter2-next'
+      (iter2--assert-num-lambdas fn 6)
       (iter2--test-byte-compiles-with-no-warnings fn))))
 
 (ert-deftest iter2-let-with-globals-2 ()
@@ -779,7 +779,7 @@ Key parameter meaning:
                    :after-yield ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
       (iter2--test fn :returned '(1 2 3 4 5) :expected '(1 2 3 (1 2 3) (4 1 2 3)) :end-value 5
                    :after-yield ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
-      (iter2--assert-num-lambdas fn 14)   ; was 9 before `iter2-next'
+      (iter2--assert-num-lambdas fn 9)
       (iter2--test-byte-compiles-with-no-warnings fn))))
 
 (ert-deftest iter2-let-with-globals-3 ()
@@ -794,7 +794,7 @@ Key parameter meaning:
                    :after-yield ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
       (iter2--test fn :args '(1) :returned '(2 3 4) :expected '(1 (1 2 1) (1 2 1)) :end-value 4
                    :after-yield ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
-      (iter2--assert-num-lambdas fn 10)   ; was 7 before `iter2-next'
+      (iter2--assert-num-lambdas fn 7)
       (iter2--test-byte-compiles-with-no-warnings fn))))
 
 (ert-deftest iter2-let*-with-globals-1 ()
@@ -802,7 +802,7 @@ Key parameter meaning:
     (iter2--runtime-eval fn (iter2-lambda () (let* ((iter2--test-global-var-1 1)) (iter-yield iter2--test-global-var-1) (iter-yield iter2--test-global-var-1)))
       (iter2--test fn :expected '(1 1)
                    :after-yield ((should (= iter2--test-global-var-1 0))))
-      (iter2--assert-num-lambdas fn 9)    ; was 7 before `iter2-next'
+      (iter2--assert-num-lambdas fn 7)
       (iter2--test-byte-compiles-with-no-warnings fn))))
 
 (ert-deftest iter2-let*-with-globals-2 ()
@@ -817,7 +817,7 @@ Key parameter meaning:
                    :after-yield ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
       (iter2--test fn :returned '(1 2 3 4 5) :expected '(1 2 3 (1 2 3) (4 1 2 3)) :end-value 5
                    :after-yield ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
-      (iter2--assert-num-lambdas fn 19)   ; was 12 before `iter2-next'
+      (iter2--assert-num-lambdas fn 12)
       (iter2--test-byte-compiles-with-no-warnings fn))))
 
 (ert-deftest iter2-let*-with-globals-3 ()
@@ -832,14 +832,14 @@ Key parameter meaning:
                    :after-yield ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
       (iter2--test fn :args '(1) :returned '(2 3 4) :expected '(1 (1 2 2) (1 2 2)) :end-value 4
                    :after-yield ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
-      (iter2--assert-num-lambdas fn 14)   ; was 10 before `iter2-next'
+      (iter2--assert-num-lambdas fn 10)
       (iter2--test-byte-compiles-with-no-warnings fn))))
 
 (ert-deftest iter2-unwind-protect-1 ()
   (iter2--runtime-eval fn (iter2-lambda (a) (or (catch 'x (unwind-protect (throw 'x (iter-yield 1)) (setq a (1+ a)))) a))
     (iter2--test fn :args '(1)                :expected '(1) :end-value 2)
     (iter2--test fn :args '(1) :returned '(0) :expected '(1) :end-value 0)
-    (iter2--assert-num-lambdas fn 13)   ; was 11 before `iter2-next'
+    (iter2--assert-num-lambdas fn 11)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-unwind-protect-2 ()
@@ -847,7 +847,7 @@ Key parameter meaning:
     (iter2--test fn :args '(1)                      :expected '(1 2)   :end-value 6)
     (iter2--test fn :args '(1) :returned '(nil t 8) :expected '(1 2 3) :end-value 10)
     (iter2--test fn :args '(1) :returned '(5)       :expected '(1)     :end-value 7)
-    (iter2--assert-num-lambdas fn 17)   ; was 14 before `iter2-next'
+    (iter2--assert-num-lambdas fn 14)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-unwind-protect-3 ()
@@ -859,7 +859,7 @@ Key parameter meaning:
       (catch 'eek
         (iter2--test fn :args (list (lambda () (throw 'eek nil)) (lambda () (setq done t)))))
       (should done))
-    (iter2--assert-num-lambdas fn 9)    ; was 8 before `iter2-next'
+    (iter2--assert-num-lambdas fn 8)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-unwind-protect-4 ()
@@ -867,13 +867,13 @@ Key parameter meaning:
   (iter2--runtime-eval fn (iter2-lambda (a) (or (catch 'x (unwind-protect (throw 'x (iter-yield 1)))) a))
     (iter2--test fn :args '(1)                :expected '(1) :end-value 1)
     (iter2--test fn :args '(1) :returned '(0) :expected '(1) :end-value 0)
-    (iter2--assert-num-lambdas fn 8)    ; was 7 before `iter2-next'
+    (iter2--assert-num-lambdas fn 7)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-unwind-protect-5 ()
   (iter2--runtime-eval fn (iter2-lambda (x) (unwind-protect (dolist (e x) (iter-yield e))))
     (iter2--test fn :args '((1 2 3)) :expected '(1 2 3) :end-value nil)
-    (iter2--assert-num-lambdas fn 8)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-unwind-protect-close-1 ()
@@ -902,7 +902,7 @@ Key parameter meaning:
       (should (not done))
       (iter-close it)
       (should done))
-    (iter2--assert-num-lambdas fn 9)    ; was 7 before `iter2-next'
+    (iter2--assert-num-lambdas fn 7)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-unwind-protect-close-2 ()
@@ -961,13 +961,13 @@ Key parameter meaning:
       (should (equal done '(1)))
       (iter-close it)
       (should (equal done '(2 1))))
-    (iter2--assert-num-lambdas fn 16)   ; was 13 before `iter2-next'
+    (iter2--assert-num-lambdas fn 13)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-condition-case-1 ()
   (iter2--runtime-eval fn (iter2-lambda () (condition-case _ (error "oh") (foo (iter-yield 1) (iter-yield 2)) (error (iter-yield 3) (iter-yield 4))))
     (iter2--test fn :expected '(3 4))
-    (iter2--assert-num-lambdas fn 8)    ; was 5 before `iter2-next'
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-condition-case-2 ()
@@ -976,7 +976,7 @@ Key parameter meaning:
     (iter2--test fn                                   :expected '(1))
     (iter2--test fn :returned '(t 'file-error t 6)    :expected '(1 2 3 t)   :end-value 6)
     (iter2--test fn :returned '(t 'arith-error t 7 8) :expected '(1 2 3 4 5) :end-value 8)
-    (iter2--assert-num-lambdas fn 13)   ; was 9 before `iter2-next'
+    (iter2--assert-num-lambdas fn 9)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-condition-case-3 ()
@@ -989,7 +989,7 @@ Key parameter meaning:
     (iter2--test fn :expected '(1 4 5 6 t)   :returned '(nil t 'file-error t 9)      :end-value 9)
     (iter2--test fn :expected '(1 2 3 7 8)   :returned '(t 'arith-error t 10 11)     :end-value 11)
     (iter2--test fn :expected '(1 4 5 6 7 8) :returned '(nil t 'arith-error t 10 11) :end-value 11)
-    (iter2--assert-num-lambdas fn 17)
+    (iter2--assert-num-lambdas fn 13)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-condition-case-4 ()
@@ -997,7 +997,7 @@ Key parameter meaning:
   (iter2--runtime-eval fn (iter2-lambda (x) (iter-yield (condition-case nil x)))
     (iter2--test fn :args '(nil) :returned '(nil) :expected '(nil))
     (iter2--test fn :args '(1)   :returned '(2)   :expected '(1) :end-value 2)
-    (iter2--assert-num-lambdas fn 4)    ; was 3 before `iter2-next'
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-condition-case-error-1 ()
@@ -1008,7 +1008,7 @@ Key parameter meaning:
     (iter2--test fn                :expected '(10) :returned '("ok")               :end-value  "ok")
     (iter2--test fn :no-std-next t :expected '(10) :returned '((user-error "meh")) :end-value  "meh")
     (iter2--test fn :no-std-next t :expected '(10) :returned '((error "meh"))      :end-signal '(error "meh"))
-    (iter2--assert-num-lambdas fn 7)
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-signalling-iter-yield-2 ()
@@ -1016,7 +1016,7 @@ Key parameter meaning:
     (iter2--test fn                :expected '(10) :returned '("ok")               :end-value  "proceeding: ok")
     (iter2--test fn :no-std-next t :expected '(10) :returned '((user-error "meh")) :end-value  "user error (meh)")
     (iter2--test fn :no-std-next t :expected '(10) :returned '((error "meh"))      :end-signal '(error "meh"))
-    (iter2--assert-num-lambdas fn 7)
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-signalling-iter-yield-3 ()
@@ -1028,14 +1028,14 @@ Key parameter meaning:
     (iter2--test fn :no-std-next t :expected '(1 2)   :returned '(nil (error "stop"))          :end-signal '(error "stop"))
     (iter2--test fn :no-std-next t :expected '(1 2 3) :returned '(nil nil (user-error "stop")) :end-value "stop")
     (iter2--test fn :no-std-next t :expected '(1 2 3) :returned '(nil nil (error "stop"))      :end-signal '(error "stop"))
-    (iter2--assert-num-lambdas fn 9)
+    (iter2--assert-num-lambdas fn 7)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-catch-1 ()
   (iter2--runtime-eval fn (iter2-lambda (a b) (catch 'x (throw 'x (iter-yield a)) b))
     (iter2--test fn :args '(1 2)                :expected '(1))
     (iter2--test fn :args '(1 2) :returned '(3) :expected '(1) :end-value 3)
-    (iter2--assert-num-lambdas fn 7)    ; was 6 before `iter2-next'
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-catch-2 ()
@@ -1043,7 +1043,7 @@ Key parameter meaning:
     (iter2--test fn                      :expected '(1 2 4))
     (iter2--test fn :returned '(5 6 7)   :expected '(1 2 3) :end-value 7)
     (iter2--test fn :returned '(t nil t) :expected '(1 2 4) :end-value t)
-    (iter2--assert-num-lambdas fn 11)   ; was 9 before `iter2-next'
+    (iter2--assert-num-lambdas fn 9)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-catch-3 ()
@@ -1052,7 +1052,7 @@ Key parameter meaning:
     (iter2--test fn :returned '('x 'y 'y 0) :expected '(1 2 3 4) :end-value 6)
     (iter2--test fn :returned '('y 'x 'y 0) :expected '(1 2 3 4) :end-value 0)
     (should (= (catch 'z (iter2--test fn :returned '('a 'b 'z 0) :expected '(1 2 3 4))) 0))
-    (iter2--assert-num-lambdas fn 16)   ; was 15 before `iter2-next'
+    (iter2--assert-num-lambdas fn 15)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-throwing-iter-yield-1 ()
@@ -1060,7 +1060,7 @@ Key parameter meaning:
     (iter2--test fn                :expected '(10) :returned '("ok")             :end-value  "ok")
     (iter2--test fn :no-std-next t :expected '(10) :returned '((throw 'done 20)) :end-value  20)
     (iter2--test fn :no-std-next t :expected '(10) :returned '((throw 'wut nil)) :end-signal '(no-catch wut nil))
-    (iter2--assert-num-lambdas fn 7)
+    (iter2--assert-num-lambdas fn 5)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-throwing-iter-yield-2 ()
@@ -1068,7 +1068,7 @@ Key parameter meaning:
     (iter2--test fn                :expected '(10) :returned '("ok")             :end-value  "proceeding: ok")
     (iter2--test fn :no-std-next t :expected '(10) :returned '((throw 'done 20)) :end-value  20)
     (iter2--test fn :no-std-next t :expected '(10) :returned '((throw 'wut nil)) :end-signal '(no-catch wut nil))
-    (iter2--assert-num-lambdas fn 7)
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-throwing-iter-yield-3 ()
@@ -1080,7 +1080,7 @@ Key parameter meaning:
     (iter2--test fn :no-std-next t :expected '(1 2)   :returned '(nil (throw 'wut nil))     :end-signal '(no-catch wut nil))
     (iter2--test fn :no-std-next t :expected '(1 2 3) :returned '(nil nil (throw 'done 12)) :end-value 12)
     (iter2--test fn :no-std-next t :expected '(1 2 3) :returned '(nil nil (throw 'wut nil)) :end-signal '(no-catch wut nil))
-    (iter2--assert-num-lambdas fn 9)
+    (iter2--assert-num-lambdas fn 7)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-save-excursion-1 ()
@@ -1112,7 +1112,7 @@ Key parameter meaning:
     (with-temp-buffer
       (iter2--do-test fn iter2-next :expected '(nil nil nil nil) :returned '(1 2 '(3 4)) :end-value "12(3 4)"
                       :after-yield ((set-buffer (messages-buffer)))))
-    (iter2--assert-num-lambdas fn 10)   ; was 8 before `iter2-next'
+    (iter2--assert-num-lambdas fn 9)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-save-current-buffer-1 ()
@@ -1124,7 +1124,7 @@ Key parameter meaning:
     (iter2--test fn :returned '(1)          :expected '(nil nil)         :end-value "1")
     (iter2--test fn :returned '(1 2)        :expected '(nil nil nil)     :end-value "12")
     (iter2--test fn :returned '(1 2 '(3 4)) :expected '(nil nil nil nil) :end-value "12(3 4)")
-    (iter2--assert-num-lambdas fn 16)   ; was 12 before `iter2-next'
+    (iter2--assert-num-lambdas fn 13)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-save-restriction-1 ()
@@ -1137,7 +1137,7 @@ Key parameter meaning:
     (with-temp-buffer
       (insert "bla bla bla")
       (iter2--test fn :expected '((1 . 1) (1 . 1)) :after-yield ((should (> (point-max) (point-min))))))
-    (iter2--assert-num-lambdas fn 8)    ; was 6 before `iter2-next'
+    (iter2--assert-num-lambdas fn 6)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-save-match-data-1 ()
@@ -1196,7 +1196,7 @@ Key parameter meaning:
     (iter2--test fn                             :expected '(nil nil))
     (iter2--test fn :args '(1)                  :expected '(1 nil))
     (iter2--test fn :args '(2) :returned '(3 4) :expected '(2 3) :end-value 4)
-    (iter2--assert-num-lambdas fn 5)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-yield-from-1 ()
@@ -1204,8 +1204,8 @@ Key parameter meaning:
     (iter2--runtime-eval fn2 (iter2-lambda (it) (iter-yield-from it))
       (iter2--test fn1 :args '(1 2 3)                   :expected '(1 2 3))
       (iter2--test fn2 :args (list (funcall fn1 1 2 3)) :expected '(1 2 3))
-      (iter2--assert-num-lambdas fn1 6)    ; was 4 before `iter2-next'
-      (iter2--assert-num-lambdas fn2 16)   ; was 11 before `iter2-next'
+      (iter2--assert-num-lambdas fn1 4)
+      (iter2--assert-num-lambdas fn2 11)
       (iter2--test-byte-compiles-with-no-warnings fn1)
       (iter2--test-byte-compiles-with-no-warnings fn2))))
 
@@ -1222,7 +1222,7 @@ Key parameter meaning:
   ;; Test with a macro that expands to (another) macro.
   (iter2--runtime-eval fn (iter2-lambda () (iter2--let-wrapper-2 ((x 1)) (iter-yield x)))
     (iter2--test fn :expected '(1))
-    (iter2--assert-num-lambdas fn 5)    ; was 3 before `iter2-next'
+    (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-with-no-warnings-1 ()
@@ -1230,7 +1230,7 @@ Key parameter meaning:
          (fn       (eval `(iter2-lambda () (with-no-warnings (set ',variable (iter-yield 1)))) t)))
     (iter2--test fn                :expected '(1))
     (iter2--test fn :returned '(2) :expected '(1) :end-value 2)
-    (iter2--assert-num-lambdas fn 5)    ; was 4 before `iter2-next'
+    (iter2--assert-num-lambdas fn 4)
     (makunbound variable)
     (iter2--test-byte-compiles-with-no-warnings fn)))
 

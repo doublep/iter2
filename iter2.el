@@ -843,7 +843,14 @@ iterator must be created with `iter2')."
 (defun iter2--continuation-adding-form (new-continuations &optional var)
   (let ((value (or var iter2--continuations)))
     (while new-continuations
-      (setq value `(cons (lambda (,iter2--value) ,@(macroexp-unprogn (pop new-continuations))) ,value)))
+      (let ((continuation (pop new-continuations)))
+        (setq value (if (equal continuation `(funcall ,iter2--value))
+                        ;; With the addition of `iter2-next', we often use a `(lambda (x) (funcall x))' to
+                        ;; resolve incoming lambdas into values (for nonlocal exits and side effects), only
+                        ;; then to ignore the result.  This is really needed, but instead of creating tons of
+                        ;; such lambdas, just use `funcall' directly: it is exactly the same here.
+                        `(cons 'funcall ,value)
+                      `(cons (lambda (,iter2--value) ,@(macroexp-unprogn continuation)) ,value)))))
     `(setq ,(or var iter2--continuations) ,value)))
 
 (defun iter2--catcher-continuation-adding-form (catcher-body next-continuation &rest additional-catcher-outer-bindings)
