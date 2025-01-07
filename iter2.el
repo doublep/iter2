@@ -252,7 +252,12 @@ iterator must be created with `iter2')."
          ;; variables declared there.
          (setq ,iter2--continuations (list (lambda (,iter2--value) ,@(macroexp-unprogn (iter2--merge-continuation-form converted)))))
          (lambda (operation value)
-           (cond ((or (when (eq operation :next) (setq value (iter2--identity-bind value))) (eq operation :iter2-next))
+           (cond ((or (eq operation :iter2-next)     ; Make it faster for our own extension.
+                      (when (eq operation :next)     ; But keep it compatible with `generator'.
+                        (setq value (iter2--identity-bind value))
+                        ;; This t is only to make byte-compiled code a bit more efficient, because otherwise
+                        ;; (as of Emacs 29) it doesn't understand that this branch is always truthy.
+                        t))
                   ,@(funcall apply-debugger
                              ;; Rewritten in a somewhat weird form to maximize performance.
                              `(while (progn (setq value ,(iter2--continuation-invocation-form 'value `(or (pop ,iter2--continuations)
