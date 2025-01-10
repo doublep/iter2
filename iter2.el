@@ -28,9 +28,13 @@
 ;; Fully compatible fast reimplementation of `generator' built-in
 ;; Emacs package.  This library provides `iter2-defun` and
 ;; `iter2-lambda` forms that can be used in place of `iter-defun` and
-;; `iter-lambda`.  All other functions and macros (e.g. `iter-yield`,
-;; `iter-next`) are intentionally not duplicated: just use the
-;; original ones.
+;; `iter-lambda`.  Form `iter2-next` is a replacement for `iter-next`
+;; (see its documentation for the reasons), though `iter-next` will
+;; work too.
+;;
+;; Other functions and macros (`iter-yield`, `iter-yield-from`,
+;; `iter-do` and `iter-close`) are intentionally not duplicated: just
+;; use the ones from the original package.
 
 
 ;;; Code:
@@ -94,7 +98,7 @@ variable.")
 The function must accept the same arguments as built-in
 `message', but is not restricted in what it does with the
 messages.  If the value is nil, tracing is disabled even for
-iterator functions that are supposed to trace.")
+generator functions that are supposed to trace.")
 
 
 (defvar iter2--tracing-depth 0)
@@ -164,10 +168,10 @@ functionality).
 
 If form YIELD-RESULT exits nonlocally (using `signal', `throw' or
 any derived mechanism), this nonlocal exit is “injected” into the
-iterator function.  It then works as if the exit was triggered by
-the last issued `(iter-yield ...)' form.  If the function has an
-appropriate `condition-case' or `catch' handler, the control is
-subsequently transferred to it.
+generator function.  It then works as if the exit was triggered
+by the last issued `(iter-yield ...)' form.  If the function has
+an appropriate `condition-case' or `catch' handler, the control
+is subsequently transferred to it.
 
 If YIELD-RESULT never exits nonlocally, behavior of this macro is
 identical to that of `iter-next' (with the exception that the

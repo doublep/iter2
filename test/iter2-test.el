@@ -109,7 +109,7 @@ Key parameter meaning:
   ARGS        -- passed to the FUNCTION call itself;
   EXPECTED    -- list of values that must be yielded by the iterator;
   RETURNED    -- list of expressions to calculate values for each
-                 successive call to `iter-next'; they can use variable
+                 successive call to `iter2-next'; they can use variable
                  `value' that holds the last yielded value;
   RETURNED-EXPRESSION -- instead of a list, you can specify one
                  expression to be evaluated as many times as needed;
@@ -123,7 +123,7 @@ Key parameter meaning:
                  iterators);
   AFTER-YIELD -- forms to evaluate _each time_ the iterator yields;
   WHEN-DONE   -- forms to evaluate once the iterator is exhausted;
-  NO-STD-NEXT -- don't try using `iter-next'."
+  NO-STD-NEXT -- don't try using `iter2-next'."
   `(progn
      ,@(unless no-std-next
          `((iter2--do-test ,function iter-next :args ,args :expected ,expected :returned ,returned :returned-expression ,returned-expression
