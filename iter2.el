@@ -647,13 +647,16 @@ iterator must be created with `iter2')."
                        (setf condition-case-body `(prog1 ,(iter2--continuation-invocation-form iter2--value)
                                                     (unless (eq ,iter2--continuations ,iter2--done)
                                                       (push ,iter2--catcher ,iter2--continuations)))))
-                     (let ((condition-case-form `(condition-case ,var
-                                                     ,condition-case-body
-                                                   ,@(mapcar (lambda (handler)
-                                                               `(,(car handler)
-                                                                 (setq ,iter2--continuations ,iter2--done ,iter2--stack ,iter2--stack-state)
-                                                                 ,@(cdr handler)))
-                                                             converted-handlers))))
+                     (let ((condition-case-form condition-case-body))
+                       ;; This check may look strange, but if the only handler is `:success', `converted-handlers' will be nil.
+                       (when converted-handlers
+                         (setf condition-case-form `(condition-case ,var
+                                                       ,condition-case-body
+                                                     ,@(mapcar (lambda (handler)
+                                                                 `(,(car handler)
+                                                                   (setq ,iter2--continuations ,iter2--done ,iter2--stack ,iter2--stack-state)
+                                                                   ,@(cdr handler)))
+                                                               converted-handlers))))
                        (when success-handler
                          (let ((body-value-var (make-symbol "$body-value")))
                            (setf condition-case-form `(let* (,success-var
