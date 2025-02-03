@@ -613,31 +613,59 @@ iterator must be created with `iter2')."
             ;; Handle (condition-case VAR BODY-FORM HANDLERS...).
             (`(condition-case ,var ,body-form . ,handlers)
              (let ((converted-body (iter2--convert-form body-form))
-                   converted-handlers)
+                   converted-handlers
+                   success-handler)
                (dolist (handler handlers)
                  (pcase handler
                    (`(,condition . ,handler-body)
-                    (let ((converted-handler (iter2--convert-progn handler-body)))
-                      (push `(,condition ,@(macroexp-unprogn (iter2--merge-continuation-form converted-handler))) converted-handlers)
+                    (let* ((converted-handler      (iter2--convert-progn handler-body))
+                           (converted-handler-form `(,condition ,@(macroexp-unprogn (iter2--merge-continuation-form converted-handler)))))
+                      ;; Emacs 28 adds special handler called `:success' invoked when the main body doesn't
+                      ;; signal.  It has to be handled specially, but only if the body yields.
+                      (if (and (eq condition :success) (cdr converted-body))
+                          (progn (when success-handler
+                                   (error "Duplicate special handler `:success' in %S" form))
+                                 (setf success-handler converted-handler-form))
+                        (push converted-handler-form converted-handlers))
                       (when (cdr converted-handler)
                         (setq can-yield t))))
                    (_
                     (error "Invalid `condition-case' error handler: %S" handler))))
                (setq converted-handlers (nreverse converted-handlers))
                (if (cdr converted-body)
-                   (progn (push (iter2--catcher-continuation-adding-form `(condition-case ,var
-                                                                              (prog1 ,(iter2--continuation-invocation-form iter2--value)
-                                                                                (unless (eq ,iter2--continuations ,iter2--done)
-                                                                                  (push ,iter2--catcher ,iter2--continuations)))
-                                                                            ,@(mapcar (lambda (handler)
-                                                                                        `(,(car handler)
-                                                                                          (setq ,iter2--continuations ,iter2--done ,iter2--stack ,iter2--stack-state)
-                                                                                          ,@(cdr handler)))
-                                                                                      converted-handlers))
-                                                                         (iter2--merge-continuation-form converted-body)
-                                                                         `(,iter2--stack-state ,iter2--stack))
-                                converted)
-                          (setq can-yield t))
+                   (let (success-var
+                         condition-case-body)
+                     (if success-handler
+                         (setf success-var         (make-symbol "$success")
+                               condition-case-body `(prog1 ,(iter2--continuation-invocation-form iter2--value)
+                                                      (if (eq ,iter2--continuations ,iter2--done)
+                                                          ;; The reason for `success-var' and not evaluating `success-handler'
+                                                          ;; is not directly here is that it must not be placed inside
+                                                          ;; `condition-case' so that it never triggers other handlers.
+                                                          (setq ,success-var t)
+                                                        (push ,iter2--catcher ,iter2--continuations))))
+                       (setf condition-case-body `(prog1 ,(iter2--continuation-invocation-form iter2--value)
+                                                    (unless (eq ,iter2--continuations ,iter2--done)
+                                                      (push ,iter2--catcher ,iter2--continuations)))))
+                     (let ((condition-case-form `(condition-case ,var
+                                                     ,condition-case-body
+                                                   ,@(mapcar (lambda (handler)
+                                                               `(,(car handler)
+                                                                 (setq ,iter2--continuations ,iter2--done ,iter2--stack ,iter2--stack-state)
+                                                                 ,@(cdr handler)))
+                                                             converted-handlers))))
+                       (when success-handler
+                         (let ((body-value-var (make-symbol "$body-value")))
+                           (setf condition-case-form `(let* (,success-var
+                                                             (,body-value-var ,condition-case-form))
+                                                        (if ,success-var
+                                                            ,(iter2--merge-continuation-form (cdr success-handler))
+                                                          ,body-value-var)))))
+                       (push (iter2--catcher-continuation-adding-form condition-case-form
+                                                                      (iter2--merge-continuation-form converted-body)
+                                                                      `(,iter2--stack-state ,iter2--stack))
+                             converted))
+                     (setq can-yield t))
                  (push `(condition-case ,var ,(car converted-body) ,@converted-handlers) converted))))
 
             ;; Handle (iter-yield VALUE).

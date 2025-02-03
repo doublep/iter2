@@ -69,14 +69,24 @@
             end-value
             end-signal)
        (iter2--pretty-print-if-failing fn
-         :extra (progn (princ "\n")
+         :extra (progn (princ "\nTest assertions and settings:\n")
                        ,@(when args
-                           `((princ (format "Arguments: %S\n" ,args))))
-                       (princ (format "Expected:  %S\n" expected))
-                       (princ (format "Returned:  %S\n" returned))
+                           `((princ (format "  - arguments:  %S\n" ,args))))
+                       (princ (format "  - expected:   %S\n" expected))
+                       (princ (format "  - returned:   %S\n" returned))
                        ,@(when returned-expression
-                           `((princ (format "    then:  %S\n" ,(macroexp-quote returned-expression)))))
-                       (princ (format "Yielded:   %S\n\n" result)))
+                           `((princ (format "        then:   %S\n" ,(macroexp-quote returned-expression)))))
+                       ,@(when end-value
+                           `((princ (format "  - end value:  %S\n" ,end-value))))
+                       ,@(when end-signal
+                           `((princ (format "  - end signal: %S\n" ,end-signal))))
+                       (princ "\nActually observed:\n")
+                       (princ (format "  - yielded:    %S\n" result))
+                       (if terminated-normally
+                           (when end-value
+                             (princ (format "  -end value:  %S\n" end-value)))
+                         (princ (format "  - end signal: %S\n" end-signal)))
+                       (princ ,(format "\nUsed “next” form': %S\n\n" next-type)))
          (condition-case error
              (catch 'too-long
                (while t
@@ -123,7 +133,7 @@ Key parameter meaning:
                  iterators);
   AFTER-YIELD -- forms to evaluate _each time_ the iterator yields;
   WHEN-DONE   -- forms to evaluate once the iterator is exhausted;
-  NO-STD-NEXT -- don't try using `iter2-next'."
+  NO-STD-NEXT -- don't try using `iter-next'."
   `(progn
      ,@(unless no-std-next
          `((iter2--do-test ,function iter-next :args ,args :expected ,expected :returned ,returned :returned-expression ,returned-expression
@@ -380,16 +390,25 @@ Key parameter meaning:
   (cond (nil 22) ((1+ 1) 42) (t 'bad)))
 
 (iter2--test-no-yields iter2-no-yields-condition-case
-  (condition-case
-      condvar
+  (condition-case condvar
       (signal 'arith-error 'test-data)
     (arith-error condvar)))
 
 (iter2--test-no-yields iter2-no-yields-condition-case-no-error
-  (condition-case
-      condvar
+  (condition-case condvar
       42
     (arith-error condvar)))
+
+(iter2--test-no-yields iter2-no-yields-condition-case-:success
+  (condition-case nil
+      42
+    (:success 15)))
+
+(iter2--test-no-yields iter2-no-yields-condition-case-:success-error
+  (condition-case condvar
+      (error 42)
+    (:success 15)
+    (error condvar)))
 
 (iter2--test-no-yields iter2-no-yields-save-excursion
   (save-excursion
@@ -1111,6 +1130,34 @@ Key parameter meaning:
     (iter2--test fn :catching catching-fn :args '(1)   :expected '(1)   :returned '(2)   :end-value 2)
     (iter2--assert-num-lambdas fn 3)
     (iter2--test-byte-compiles-with-no-warnings fn catching-fn)))
+
+(ert-deftest iter2-condition-case-:success-1 ()
+  (skip-unless (>= emacs-major-version 28))
+  (iter2--runtime-eval fn (iter2-lambda () (condition-case nil (iter-yield 1) (:success 2)))
+    :catching catching-fn
+    (iter2--test fn :catching catching-fn :expected '(1) :end-value 2)
+    (iter2--assert-num-lambdas fn 5)
+    (iter2--test-byte-compiles-with-no-warnings fn catching-fn)))
+
+(ert-deftest iter2-condition-case-:success-2 ()
+  (skip-unless (>= emacs-major-version 28))
+  (iter2--runtime-eval fn (iter2-lambda () (condition-case nil (iter-yield 1) (:success 2) (arith-error "WUT?")))
+    :catching catching-fn
+    (iter2--test fn                :catching catching-fn :expected '(1)                                           :end-value 2)
+    (iter2--test fn :no-std-next t :catching catching-fn :expected '(1) :returned '((signal 'arith-error "bwah")) :end-value "WUT?")
+    (iter2--assert-num-lambdas fn 5)
+    (iter2--test-byte-compiles-with-no-warnings fn catching-fn)))
+
+(ert-deftest iter2-condition-case-:success-3 ()
+  (skip-unless (>= emacs-major-version 28))
+  ;; Here `:success' handler itself results in an error.  Make sure it is not handled by other handlers: in
+  ;; normal `condition-case' handlers are independent.
+  (iter2--runtime-eval fn (iter2-lambda () (condition-case nil (iter-yield 1) (:success (user-error "Failure: it works")) (user-error "Eaten up")))
+    (iter2--test fn                :expected '(1)                                 :end-signal '(user-error "Failure: it works"))
+    (iter2--test fn :no-std-next t :expected '(1) :returned '((user-error "...")) :end-value "Eaten up")
+    (iter2--test fn :no-std-next t :expected '(1) :returned '((error "..."))      :end-signal '(error "..."))
+    (iter2--assert-num-lambdas fn 5)
+    (iter2--test-byte-compiles-with-no-warnings fn)))
 
 (ert-deftest iter2-condition-case-error-1 ()
   (should-error (eval '(iter2-lambda () (condition-case nil (foo) error)) t)))
