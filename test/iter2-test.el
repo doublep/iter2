@@ -916,6 +916,90 @@ Key parameter meaning:
       (iter2--assert-num-lambdas fn 7)
       (iter2--test-byte-compiles-with-no-warnings fn catching-fn))))
 
+(ert-deftest iter2-let-with-globals-4 ()
+  (let ((iter2--test-global-var-1 0))
+    ;; The body of `let' essentially uses `iter2--test-global-var-1' as a counter.  This test ensures that
+    ;; (global) variable's value is preserved after yields.  (Previously it would get reset to what is
+    ;; specified in `let', which is not correct.)
+    (iter2--runtime-eval fn (iter2-lambda (x) (let ((iter2--test-global-var-1 x))
+                                                (iter-yield iter2--test-global-var-1)
+                                                (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1))
+                                                (iter-yield iter2--test-global-var-1)
+                                                (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1))
+                                                (iter-yield iter2--test-global-var-1)
+                                                iter2--test-global-var-1))
+      :catching catching-fn
+      (iter2--test fn :catching catching-fn :args '(1)   :expected '(1 2 3)       :end-value 3
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--test fn :catching catching-fn :args '(101) :expected '(101 102 103) :end-value 103
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--assert-num-lambdas fn 8)
+      (iter2--test-byte-compiles-with-no-warnings fn catching-fn))))
+
+(ert-deftest iter2-let-with-globals-4a ()
+  (let ((iter2--test-global-var-1 0))
+    ;; Much like above, but instead of `x' we use a literal.
+    (iter2--runtime-eval fn (iter2-lambda () (let ((iter2--test-global-var-1 1))
+                                               (iter-yield iter2--test-global-var-1)
+                                               (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1))
+                                               (iter-yield iter2--test-global-var-1)
+                                               (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1))
+                                               (iter-yield iter2--test-global-var-1)
+                                               iter2--test-global-var-1))
+      :catching catching-fn
+      (iter2--test fn :catching catching-fn :expected '(1 2 3) :end-value 3
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--assert-num-lambdas fn 8)
+      (iter2--test-byte-compiles-with-no-warnings fn catching-fn))))
+
+(ert-deftest iter2-let-with-globals-5 ()
+  (let ((iter2--test-global-var-1 0)
+        (iter2--test-global-var-2 0))
+    ;; Similar to `...-with-globals-4', with two variables.
+    (iter2--runtime-eval fn (iter2-lambda (x y) (let ((iter2--test-global-var-1 x)
+                                                      ;; Here `+' is essentially a no-op, given that out-of-lambda value is zero.
+                                                      (iter2--test-global-var-2 (+ iter2--test-global-var-1 y)))
+                                                  (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                  (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1)
+                                                        iter2--test-global-var-2 (+ iter2--test-global-var-2 10))
+                                                  (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                  (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1)
+                                                        iter2--test-global-var-2 (+ iter2--test-global-var-2 10))
+                                                  (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                  (list iter2--test-global-var-1 iter2--test-global-var-2)))
+      :catching catching-fn
+      (iter2--test fn :catching catching-fn :args '(1 1)   :expected '((1 1) (2 11) (3 21))     :end-value '(3 21)
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--test fn :catching catching-fn :args '(30 20) :expected '((30 20) (31 30) (32 40)) :end-value '(32 40)
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--assert-num-lambdas fn 8)
+      (iter2--test-byte-compiles-with-no-warnings fn catching-fn))))
+
+(ert-deftest iter2-let-with-globals-6 ()
+  (let ((iter2--test-global-var-1 0)
+        (iter2--test-global-var-2 0))
+    ;; Similar to but the variables are bound separately, in different forms.
+    (iter2--runtime-eval fn (iter2-lambda (x y) (let ((iter2--test-global-var-1 iter2--test-global-var-1))
+                                                  (iter-yield iter2--test-global-var-1)
+                                                  (setf iter2--test-global-var-1 x)
+                                                  (iter-yield iter2--test-global-var-1)
+                                                  (let ((iter2--test-global-var-2 (+ iter2--test-global-var-1 y)))
+                                                    (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                    (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1)
+                                                          iter2--test-global-var-2 (+ iter2--test-global-var-2 10))
+                                                    (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                    (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1)
+                                                          iter2--test-global-var-2 (+ iter2--test-global-var-2 10))
+                                                    (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                    (list iter2--test-global-var-1 iter2--test-global-var-2))))
+      :catching catching-fn
+      (iter2--test fn :catching catching-fn :args '(1 1)   :expected '(0 1 (1 2) (2 12) (3 22))     :end-value '(3 22)
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--test fn :catching catching-fn :args '(30 20) :expected '(0 30 (30 50) (31 60) (32 70)) :end-value '(32 70)
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--assert-num-lambdas fn 12)
+      (iter2--test-byte-compiles-with-no-warnings fn catching-fn))))
+
 (ert-deftest iter2-let*-with-globals-1 ()
   (let ((iter2--test-global-var-1 0))
     (iter2--runtime-eval fn (iter2-lambda () (let* ((iter2--test-global-var-1 1)) (iter-yield iter2--test-global-var-1) (iter-yield iter2--test-global-var-1)))
@@ -955,6 +1039,89 @@ Key parameter meaning:
       (iter2--test fn :catching catching-fn :args '(1) :expected '(1 (1 2 2) (1 2 2))        :returned '(2 3 4) :end-value 4
                    :after-yield ((should (equal iter2--test-global-var-1 0)) (should (equal iter2--test-global-var-2 0))))
       (iter2--assert-num-lambdas fn 10)
+      (iter2--test-byte-compiles-with-no-warnings fn catching-fn))))
+
+(ert-deftest iter2-let*-with-globals-4 ()
+  (let ((iter2--test-global-var-1 0))
+    ;; The body of `let' essentially uses `iter2--test-global-var-1' as a counter.  This test ensures that
+    ;; (global) variable's value is preserved after yields.  (Previously it would get reset to what is
+    ;; specified in `let', which is not correct.)
+    (iter2--runtime-eval fn (iter2-lambda (x) (let* ((iter2--test-global-var-1 x))
+                                                (iter-yield iter2--test-global-var-1)
+                                                (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1))
+                                                (iter-yield iter2--test-global-var-1)
+                                                (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1))
+                                                (iter-yield iter2--test-global-var-1)
+                                                iter2--test-global-var-1))
+      :catching catching-fn
+      (iter2--test fn :catching catching-fn :args '(1)   :expected '(1 2 3)       :end-value 3
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--test fn :catching catching-fn :args '(101) :expected '(101 102 103) :end-value 103
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--assert-num-lambdas fn 9)
+      (iter2--test-byte-compiles-with-no-warnings fn catching-fn))))
+
+(ert-deftest iter2-let*-with-globals-4a ()
+  (let ((iter2--test-global-var-1 0))
+    ;; Much like above, but instead of `x' we use a literal.
+    (iter2--runtime-eval fn (iter2-lambda () (let* ((iter2--test-global-var-1 1))
+                                               (iter-yield iter2--test-global-var-1)
+                                               (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1))
+                                               (iter-yield iter2--test-global-var-1)
+                                               (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1))
+                                               (iter-yield iter2--test-global-var-1)
+                                               iter2--test-global-var-1))
+      :catching catching-fn
+      (iter2--test fn :catching catching-fn :expected '(1 2 3) :end-value 3
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--assert-num-lambdas fn 9)
+      (iter2--test-byte-compiles-with-no-warnings fn catching-fn))))
+
+(ert-deftest iter2-let*-with-globals-5 ()
+  (let ((iter2--test-global-var-1 0)
+        (iter2--test-global-var-2 0))
+    ;; Similar to `...-with-globals-4', with two variables.
+    (iter2--runtime-eval fn (iter2-lambda (x y) (let* ((iter2--test-global-var-1 x)
+                                                       (iter2--test-global-var-2 (+ iter2--test-global-var-1 y)))
+                                                  (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                  (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1)
+                                                        iter2--test-global-var-2 (+ iter2--test-global-var-2 10))
+                                                  (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                  (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1)
+                                                        iter2--test-global-var-2 (+ iter2--test-global-var-2 10))
+                                                  (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                  (list iter2--test-global-var-1 iter2--test-global-var-2)))
+      :catching catching-fn
+      (iter2--test fn :catching catching-fn :args '(1 1)   :expected '((1 2) (2 12) (3 22))     :end-value '(3 22)
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--test fn :catching catching-fn :args '(30 20) :expected '((30 50) (31 60) (32 70)) :end-value '(32 70)
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--assert-num-lambdas fn 11)
+      (iter2--test-byte-compiles-with-no-warnings fn catching-fn))))
+
+(ert-deftest iter2-let*-with-globals-6 ()
+  (let ((iter2--test-global-var-1 0)
+        (iter2--test-global-var-2 0))
+    ;; Similar to but the variables are bound separately, in different forms.
+    (iter2--runtime-eval fn (iter2-lambda (x y) (let* ((iter2--test-global-var-1 iter2--test-global-var-1))
+                                                  (iter-yield iter2--test-global-var-1)
+                                                  (setf iter2--test-global-var-1 x)
+                                                  (iter-yield iter2--test-global-var-1)
+                                                  (let* ((iter2--test-global-var-2 (+ iter2--test-global-var-1 y)))
+                                                    (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                    (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1)
+                                                          iter2--test-global-var-2 (+ iter2--test-global-var-2 10))
+                                                    (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                    (setf iter2--test-global-var-1 (1+ iter2--test-global-var-1)
+                                                          iter2--test-global-var-2 (+ iter2--test-global-var-2 10))
+                                                    (iter-yield (list iter2--test-global-var-1 iter2--test-global-var-2))
+                                                    (list iter2--test-global-var-1 iter2--test-global-var-2))))
+      :catching catching-fn
+      (iter2--test fn :catching catching-fn :args '(1 1)   :expected '(0 1 (1 2) (2 12) (3 22))     :end-value '(3 22)
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--test fn :catching catching-fn :args '(30 20) :expected '(0 30 (30 50) (31 60) (32 70)) :end-value '(32 70)
+                   :after-yield ((should (equal iter2--test-global-var-1 0))))
+      (iter2--assert-num-lambdas fn 14)
       (iter2--test-byte-compiles-with-no-warnings fn catching-fn))))
 
 (ert-deftest iter2-unwind-protect-1 ()

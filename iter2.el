@@ -451,6 +451,7 @@ iterator must be created with `iter2')."
                    converted-bindings
                    catcher-outer-bindings
                    catcher-inner-bindings
+                   catcher-value-storing-forms
                    ;; The rest are unused for `let*'.
                    next-continuation-bindings
                    values-to-save-on-stack
@@ -497,7 +498,7 @@ iterator must be created with `iter2')."
                                                                                                                                                   ,@bindings)
                                                                                                                                          ,@let-body)))))
                                            ;; We need to bind already converted values now.
-                                           (push (iter2--let*-yielding-form catcher-outer-bindings catcher-inner-bindings
+                                           (push (iter2--let*-yielding-form catcher-outer-bindings catcher-inner-bindings catcher-value-storing-forms
                                                                             (iter2--merge-continuation-form (iter2--convert-form `(let* ((,var (funcall ,iter2--value)) ,@bindings) ,@let-body)))
                                                                             (iter2--merge-continuation-form converted-value))
                                                  converted))
@@ -507,11 +508,12 @@ iterator must be created with `iter2')."
                                 (when plain-let
                                   (push `(,var ,iter2--stack-state) next-continuation-bindings)
                                   (push converted-value-form values-to-save-on-stack))))))
-                     (if (or literal (not special))
-                         (push (car converted-bindings) (if special catcher-inner-bindings catcher-outer-bindings))
-                       (let ((private-storage-var (make-symbol (format "$%s" (symbol-name var)))))
-                         (push `(,private-storage-var ,(nth 1 (car converted-bindings))) catcher-outer-bindings)
-                         (push `(,var                 ,private-storage-var)              catcher-inner-bindings)))
+                     (if special
+                         (let ((private-storage-var (make-symbol (format "$%s" (symbol-name var)))))
+                           (push `(,private-storage-var ,(nth 1 (car converted-bindings))) catcher-outer-bindings)
+                           (push `(,var                 ,private-storage-var)              catcher-inner-bindings)
+                           (push `(setq                 ,private-storage-var ,var)         catcher-value-storing-forms))
+                       (push (car converted-bindings) catcher-outer-bindings))
                      ;; This is a marker we use to separate bindings for different
                      ;; catchers for `let*'.
                      (when (and special (not plain-let))
@@ -528,11 +530,13 @@ iterator must be created with `iter2')."
                      (push (if plain-let
                                `(let (,@(nreverse catcher-outer-bindings))
                                   ,(iter2--catcher-continuation-adding-form `(let (,@(nreverse catcher-inner-bindings))
-                                                                               (prog1 ,(iter2--continuation-invocation-form iter2--value)
+                                                                               (prog1 (unwind-protect
+                                                                                          ,(iter2--continuation-invocation-form iter2--value)
+                                                                                        ,@(nreverse catcher-value-storing-forms))
                                                                                  (unless (eq ,iter2--continuations ,iter2--done)
                                                                                    (push ,iter2--catcher ,iter2--continuations))))
                                                                             converted-let-body-form))
-                             (iter2--let*-yielding-form catcher-outer-bindings catcher-inner-bindings converted-let-body-form))
+                             (iter2--let*-yielding-form catcher-outer-bindings catcher-inner-bindings catcher-value-storing-forms converted-let-body-form))
                            converted)
                      (setq can-yield t))))))
 
@@ -902,7 +906,7 @@ iterator must be created with `iter2')."
                (cons (lambda (,iter2--value) ,@(macroexp-unprogn next-continuation))
                      ,iter2--continuations))))
 
-(defun iter2--let*-yielding-form (catcher-outer-bindings catcher-inner-bindings continuation &optional form-before-continuation)
+(defun iter2--let*-yielding-form (catcher-outer-bindings catcher-inner-bindings catcher-value-storing-forms continuation &optional form-before-continuation)
   (let (main-bindings)
     (while (and catcher-outer-bindings (car catcher-outer-bindings))
       (push (pop catcher-outer-bindings) main-bindings))
@@ -916,7 +920,9 @@ iterator must be created with `iter2')."
             (push (pop catcher-outer-bindings) outer-bindings))
           (setq catcher-outer-bindings (cdr catcher-outer-bindings))
           (setq form (iter2--catcher-continuation-adding-form `(let (,(pop catcher-inner-bindings))
-                                                                 (prog1 ,(iter2--continuation-invocation-form iter2--value)
+                                                                 (prog1 (unwind-protect
+                                                                            ,(iter2--continuation-invocation-form iter2--value)
+                                                                          ,(pop catcher-value-storing-forms))
                                                                    (unless (eq ,iter2--continuations ,iter2--done)
                                                                      (push ,iter2--catcher ,iter2--continuations))))
                                                               form))
