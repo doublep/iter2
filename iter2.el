@@ -4,7 +4,7 @@
 
 ;; Author:     Paul Pogonyshev <pogonyshev@gmail.com>
 ;; Maintainer: Paul Pogonyshev <pogonyshev@gmail.com>
-;; Version:    2.2snapshot
+;; Version:    2.2
 ;; Keywords:   elisp, extensions
 ;; Homepage:   https://github.com/doublep/iter2
 ;; Package-Requires: ((emacs "25.1"))
